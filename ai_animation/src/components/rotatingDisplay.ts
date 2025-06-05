@@ -79,9 +79,11 @@ function rotateToNextDisplay(): void {
 
   // Determine next display type
   switch (currentDisplayType) {
-    case DisplayType.SC_HISTORY_CHART:
-      currentDisplayType = DisplayType.RELATIONSHIP_HISTORY_CHART;
-      break;
+    //FIXME: This should be turned back on. It's not rotating right now for some reason, and we need to fix that.
+    //
+    // case DisplayType.SC_HISTORY_CHART:
+    //   currentDisplayType = DisplayType.RELATIONSHIP_HISTORY_CHART;
+    //   break;
     case DisplayType.RELATIONSHIP_HISTORY_CHART:
       currentDisplayType = DisplayType.SC_HISTORY_CHART;
       break;
