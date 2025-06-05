@@ -169,6 +169,8 @@ export function previousPhase() {
 export function displayPhase(skipMessages = false) {
   let index = gameState.phaseIndex
   if (index >= gameState.gameData.phases.length) {
+    // FIXME: Calling this here as well as in nextPhase is unneeded
+
     displayFinalPhase()
     logger.log("Displayed final phase.")
     return;
@@ -221,10 +223,17 @@ export function displayPhase(skipMessages = false) {
   // Only animate if not the first phase and animations are requested
   if (!isFirstPhase && !skipMessages) {
     if (previousPhase) {
-      // Don't create animations immediately if messages are still playing
-      // The main loop will handle this when messages finish
-      if (!gameState.messagesPlaying) {
-        createAnimationsForNextPhase();
+      try {
+        // Don't create animations immediately if messages are still playing
+        // The main loop will handle this when messages finish
+        if (!gameState.messagesPlaying) {
+          createAnimationsForNextPhase();
+        }
+      } catch (error) {
+        console.warn(`Caught below error when attempting to create animations. Moving on without them.`)
+        console.error(error)
+        initUnits(gameState.phaseIndex)
+
       }
     }
   } else {
@@ -282,7 +291,7 @@ export function advanceToNextPhase() {
   // In streaming mode, add extra delay before speech to ensure phase is fully displayed
   const isStreamingMode = import.meta.env.VITE_STREAMING_MODE === 'True' || import.meta.env.VITE_STREAMING_MODE === 'true';
   const speechDelay = isStreamingMode ? 2000 : 0; // 2 second delay in streaming mode
-  
+
   // First show summary if available
   if (currentPhase.summary && currentPhase.summary.trim() !== '') {
     // Delay speech in streaming mode
