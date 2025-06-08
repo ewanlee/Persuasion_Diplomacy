@@ -71,9 +71,8 @@ if (null === mapView) throw new Error("Element with ID 'map-view' not found");
 export const leaderboard = document.getElementById('leaderboard');
 if (null === leaderboard) throw new Error("Element with ID 'leaderboard' not found");
 
-export const standingsBtn = document.getElementById('standings-btn');
-if (null === standingsBtn) throw new Error("Element with ID 'standings-btn' not found");
-
+export const rotatingDisplay = document.getElementById('rotating-display');
+if (null === rotatingDisplay) throw new Error("Element with ID 'rotating-display' not found");
 // Debug menu elements
 export const debugMenu = document.getElementById('debug-menu');
 if (null === debugMenu) throw new Error("Element with ID 'debug-menu' not found");

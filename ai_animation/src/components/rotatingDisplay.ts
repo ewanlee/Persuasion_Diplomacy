@@ -40,7 +40,7 @@ let isInitialized = false;
  * Initialize the rotating display
  * @param containerId The ID of the container element
  */
-export function initRotatingDisplay(containerId: string): void {
+export function initRotatingDisplay(containerId: string = 'rotating-display'): void {
   containerElement = document.getElementById(containerId);
 
   if (!containerElement) {

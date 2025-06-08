@@ -9,8 +9,8 @@ import { logger } from "./logger";
 import { OrbitControls } from "three/examples/jsm/Addons.js";
 import { displayInitialPhase, togglePlayback } from "./phase";
 import { Tween, Group as TweenGroup } from "@tweenjs/tween.js";
-import { hideStandingsBoard, } from "./domElements/standingsBoard";
 import { MomentsDataSchema, Moment, NormalizedMomentsData } from "./types/moments";
+import { updateLeaderboard } from "./components/leaderboard";
 
 //FIXME: This whole file is a mess. Need to organize and format
 
@@ -26,28 +26,28 @@ function getRandomPower(gameData?: GameSchemaType): PowerENUM {
   const allPowers = Object.values(PowerENUM).filter(power =>
     power !== PowerENUM.GLOBAL && power !== PowerENUM.EUROPE
   );
-  
+
   // If no game data provided, return any random power
   if (!gameData || !gameData.phases || gameData.phases.length === 0) {
     const idx = Math.floor(Math.random() * allPowers.length);
     return allPowers[idx];
   }
-  
+
   // Get the last phase to check supply centers
   const lastPhase = gameData.phases[gameData.phases.length - 1];
-  
+
   // Filter powers that have more than 2 supply centers
   const eligiblePowers = allPowers.filter(power => {
     const centers = lastPhase.state?.centers?.[power];
     return centers && centers.length > 2;
   });
-  
+
   // If no powers have more than 2 centers, fall back to any power
   if (eligiblePowers.length === 0) {
     const idx = Math.floor(Math.random() * allPowers.length);
     return allPowers[idx];
   }
-  
+
   const idx = Math.floor(Math.random() * eligiblePowers.length);
   return eligiblePowers[idx];
 }
@@ -339,13 +339,12 @@ class GameState {
       })
         .then(() => {
           console.log(`Game file with id ${gameId} loaded and parsed successfully`);
-          // Explicitly hide standings board after loading game
-          hideStandingsBoard();
           // Update rotating display and relationship popup with game data
           if (this.gameData) {
             updateRotatingDisplay(this.gameData, this.phaseIndex, this.currentPower);
             this.gameId = gameId
             updateGameIdDisplay();
+            updateLeaderboard();
             resolve()
           }
         })
@@ -376,9 +375,7 @@ class GameState {
     if (mapView === null) {
       throw Error("Cannot find mapView element, unable to continue.")
     }
-    
-    const isStreamingMode = import.meta.env.VITE_STREAMING_MODE === 'True' || import.meta.env.VITE_STREAMING_MODE === 'true';
-    
+
     this.scene.background = new THREE.Color(0x87CEEB);
 
     // Camera
@@ -389,28 +386,17 @@ class GameState {
       3000
     );
     this.camera.position.set(0, 800, 900); // MODIFIED: Increased z-value to account for map shift
-    
+
     // Renderer with streaming optimizations
-    this.renderer = new THREE.WebGLRenderer({ 
-      antialias: !isStreamingMode, // Disable antialiasing in streaming mode
+    this.renderer = new THREE.WebGLRenderer({
       powerPreference: "high-performance",
-      preserveDrawingBuffer: isStreamingMode // Required for streaming
     });
     this.renderer.setSize(mapView.clientWidth, mapView.clientHeight);
-    
-    // Force lower pixel ratio for streaming to reduce GPU load
-    if (isStreamingMode) {
-      this.renderer.setPixelRatio(1);
-    } else {
-      this.renderer.setPixelRatio(window.devicePixelRatio);
-    }
-    
+
     mapView.appendChild(this.renderer.domElement);
 
     // Controls with streaming optimizations
     this.camControls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.camControls.enableDamping = !isStreamingMode; // Disable damping for immediate response
-    this.camControls.dampingFactor = 0.05;
     this.camControls.screenSpacePanning = true;
     this.camControls.minDistance = 100;
     this.camControls.maxDistance = 2000;

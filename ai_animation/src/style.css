@@ -99,10 +99,10 @@
   }
   
   /* -----------------
-     Info Panel 
+     Leaderboard
      (lower-right)
      ----------------- */
-  #info-panel {
+  #leaderboard {
     position: absolute;
     bottom: 20px;
     right: 10px;
@@ -129,7 +129,7 @@
      Leaderboard 
      (lower-left)
      ----------------- */
-  #leaderboard {
+  #rotating-display {
     position: absolute;
     bottom: 20px;
     left: 10px;

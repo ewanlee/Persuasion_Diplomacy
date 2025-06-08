@@ -10,28 +10,27 @@ let isAudioInitialized = false;
  * Only loads in streaming mode to avoid unnecessary downloads
  */
 export function initializeBackgroundAudio(): void {
-  const isStreamingMode = import.meta.env.VITE_STREAMING_MODE === 'True' || import.meta.env.VITE_STREAMING_MODE === 'true';
-  
-  if (!isStreamingMode || isAudioInitialized) {
-    return;
+
+  if (isAudioInitialized) {
+    throw new Error("Attempted to init audio twice.")
   }
 
   isAudioInitialized = true;
-  
+
   // Create audio element
   backgroundAudio = new Audio();
   backgroundAudio.loop = true;
   backgroundAudio.volume = 0.4; // 40% volume as requested
-  
+
   // For now, we'll use a placeholder - you should download and convert the wave file
   // to a smaller MP3 format (aim for < 10MB) and place it in public/sounds/
   backgroundAudio.src = './sounds/background_ambience.mp3';
-  
+
   // Handle audio loading
   backgroundAudio.addEventListener('canplaythrough', () => {
     console.log('Background audio loaded and ready to play');
   });
-  
+
   backgroundAudio.addEventListener('error', (e) => {
     console.error('Failed to load background audio:', e);
   });

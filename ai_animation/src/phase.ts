@@ -2,7 +2,7 @@ import { gameState } from "./gameState";
 import { logger } from "./logger";
 import { updatePhaseDisplay, playBtn, prevBtn, nextBtn } from "./domElements";
 import { initUnits } from "./units/create";
-import { updateSupplyCenterOwnership, updateLeaderboard, updateMapOwnership as _updateMapOwnership, updateMapOwnership } from "./map/state";
+import { updateSupplyCenterOwnership, updateMapOwnership as _updateMapOwnership, updateMapOwnership } from "./map/state";
 import { updateChatWindows, addToNewsBanner } from "./domElements/chatWindows";
 import { createAnimationsForNextPhase } from "./units/animate";
 import { speakSummary } from "./speech";
@@ -11,6 +11,7 @@ import { debugMenuInstance } from "./debug/debugMenu";
 import { showTwoPowerConversation, closeTwoPowerConversation } from "./components/twoPowerConversation";
 import { closeVictoryModal, showVictoryModal } from "./components/victoryModal";
 import { notifyPhaseChange } from "./webhooks/phaseNotifier";
+import { updateLeaderboard } from "./components/leaderboard";
 import { updateRotatingDisplay } from "./components/rotatingDisplay";
 
 const MOMENT_THRESHOLD = 8.0
@@ -199,7 +200,7 @@ export function displayPhase(skipMessages = false) {
 
 
   // Update UI elements with smooth transitions
-  updateLeaderboard(currentPhase);
+  updateRotatingDisplay(gameState.gameData, gameState.phaseIndex, gameState.currentPower);
   _updateMapOwnership();
 
   // Add phase info to news banner if not already there
@@ -210,8 +211,8 @@ export function displayPhase(skipMessages = false) {
   const phaseInfo = `Phase: ${currentPhase.name}\nSCs: ${currentPhase.state?.centers ? JSON.stringify(currentPhase.state.centers) : 'None'}\nUnits: ${currentPhase.state?.units ? JSON.stringify(currentPhase.state.units) : 'None'}`;
   console.log(phaseInfo); // Use console.log instead of logger.log
 
-  // Update info panel with power information
-  logger.updateInfoPanel();
+  // Update leaderboard with power information
+  updateLeaderboard();
 
   // Show messages with animation or immediately based on skipMessages flag
   if (!skipMessages) {
@@ -288,9 +289,7 @@ export function advanceToNextPhase() {
     console.log(`Processing phase transition for ${currentPhase.name}`);
   }
 
-  // In streaming mode, add extra delay before speech to ensure phase is fully displayed
-  const isStreamingMode = import.meta.env.VITE_STREAMING_MODE === 'True' || import.meta.env.VITE_STREAMING_MODE === 'true';
-  const speechDelay = isStreamingMode ? 2000 : 0; // 2 second delay in streaming mode
+  const speechDelay = 2000
 
   // First show summary if available
   if (currentPhase.summary && currentPhase.summary.trim() !== '') {

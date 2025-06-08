@@ -4,10 +4,10 @@
 export const config = {
   // Default speed in milliseconds for animations and transitions
   playbackSpeed: 500,
-  
+
   // Streaming mode specific timing
   get streamingPlaybackSpeed(): number {
-    const isStreamingMode = import.meta.env.VITE_STREAMING_MODE === 'True' || import.meta.env.VITE_STREAMING_MODE === 'true';
+    const isStreamingMode = import.meta.env.MODE === 'production'
     return isStreamingMode ? 1000 : this.playbackSpeed; // Slower for streaming
   },
 
@@ -74,13 +74,13 @@ export const config = {
     unitBobFrequency: 0.8,
     fleetRollFrequency: 0.5,
     fleetPitchFrequency: 0.3,
-    
+
     // Supply center pulse frequency (Hz)
     supplyPulseFrequency: 1.0,
-    
+
     // Province highlight flash frequency (Hz)
     provinceFlashFrequency: 2.0,
-    
+
     // Maximum frame delta time (seconds) to prevent animation jumps
     maxDeltaTime: 0.1
   }
