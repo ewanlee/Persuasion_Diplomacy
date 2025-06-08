@@ -288,7 +288,7 @@ function createDiaryBox(power: PowerENUM, diaryContent: string): HTMLElement {
         flex: 1;
         min-height: 0;
         overflow-y: auto;
-        font-size: 1.75em;
+        font-size: 1.4rem;
         line-height: 1.4;
         color: #4a3b1f;
         font-style: italic;
