@@ -123,7 +123,7 @@ class GameState {
     this.phaseIndex = 0
     this.boardName = boardName
     this.currentPower = null;
-    this.gameId = 1
+    this.gameId = 12
     this.momentsData = null; // Initialize as null, will be loaded later
     // State locks
     this.isSpeaking = false
@@ -325,6 +325,9 @@ class GameState {
    * Given a gameId, load that game's state into the GameState Object
    */
   loadGameFile = (gameId: number): Promise<void> => {
+    if (gameId === undefined) {
+      gameId = gameState.gameId
+    }
 
     if (gameId === null || gameId < 0) {
       throw Error(`Attempted to load game with invalid ID ${gameId}`)

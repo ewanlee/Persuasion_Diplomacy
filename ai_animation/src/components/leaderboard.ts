@@ -21,16 +21,12 @@ export function updateLeaderboard() {
 
   // Add fade-out transition
   containerElement.style.transition = 'opacity 0.3s ease-out';
-  containerElement.style.opacity = '0';
 
-  // Update content after fade-out
-  setTimeout(() => {
-    // Get supply center counts for the current phase
-    const scCounts = getSupplyCenterCounts();
+  // Get supply center counts for the current phase
+  const scCounts = getSupplyCenterCounts();
 
-    containerElement.innerHTML = `
-        <div><strong>Power:</strong> <span class="power-${gameState.currentPower.toLowerCase()}">${getPowerDisplayName(gameState.currentPower)}</span></div>
-        <div><strong>Current Phase:</strong> ${phaseName}</div>
+  containerElement.innerHTML = `
+        <div><strong>Playing As:</strong> <span class="power-${gameState.currentPower.toLowerCase()}">${getPowerDisplayName(gameState.currentPower)}</span></div>
         <hr/>
         <h4>Supply Center Counts</h4>
         <ul style="list-style:none;padding-left:0;margin:0;">
@@ -43,10 +39,6 @@ export function updateLeaderboard() {
           <li><span class="power-turkey">${getPowerDisplayName(PowerENUM.TURKEY)}:</span> ${scCounts.TURKEY || 0}</li>
         </ul>
       `;
-
-    // Fade back in
-    containerElement.style.opacity = '1';
-  }, 300);
 }
 
 // Helper function to count supply centers for each power

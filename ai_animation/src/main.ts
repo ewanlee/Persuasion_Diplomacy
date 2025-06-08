@@ -5,7 +5,7 @@ import { gameState } from "./gameState";
 import { logger } from "./logger";
 import { loadBtn, prevBtn, nextBtn, speedSelector, fileInput, playBtn, mapView, loadGameBtnFunction } from "./domElements";
 import { updateChatWindows } from "./domElements/chatWindows";
-import { displayPhaseWithAnimation, advanceToNextPhase, resetToPhase, nextPhase, previousPhase, togglePlayback } from "./phase";
+import { displayPhaseWithAnimation, advanceToNextPhase, resetToPhase, nextPhase, previousPhase, togglePlayback, _setPhase } from "./phase";
 import { config } from "./config";
 import { Tween, Group, Easing } from "@tweenjs/tween.js";
 import { initRotatingDisplay, updateRotatingDisplay } from "./components/rotatingDisplay";
@@ -13,12 +13,13 @@ import { closeTwoPowerConversation, showTwoPowerConversation } from "./component
 import { PowerENUM } from "./types/map";
 import { debugMenuInstance } from "./debug/debugMenu";
 import { initializeBackgroundAudio, startBackgroundAudio } from "./backgroundAudio";
-import { initLeaderBoard, updateLeaderboard } from "./components/leaderboard";
+import { updateLeaderboard } from "./components/leaderboard";
 
 //TODO: Create a function that finds a suitable unit location within a given polygon, for placing units better 
 //  Currently the location for label, unit, and SC are all the same manually picked location
 
 const isStreamingMode = import.meta.env.VITE_STREAMING_MODE
+const phaseStartIdx = 45;
 
 // --- INITIALIZE SCENE ---
 function initScene() {
@@ -36,15 +37,21 @@ function initScene() {
   // Load coordinate data, then build the map
   gameState.loadBoardState().then(() => {
     initMap(gameState.scene).then(() => {
-      // Update info panel with initial power information
-      updateLeaderboard();
 
       // Initialize rotating display
       initRotatingDisplay();
 
       gameState.cameraPanAnim = createCameraPan()
 
-      gameState.loadGameFile(0);
+      gameState.loadGameFile().then(() => {
+
+        // Update info panel with initial power information
+        updateLeaderboard();
+
+        if (phaseStartIdx !== undefined) {
+          _setPhase(phaseStartIdx)
+        }
+      })
 
 
       // Initialize debug menu if in debug mode
