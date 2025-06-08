@@ -124,6 +124,7 @@ class GameState {
     this.boardName = boardName
     this.currentPower = null;
     this.gameId = 12
+
     this.momentsData = null; // Initialize as null, will be loaded later
     // State locks
     this.isSpeaking = false
@@ -344,7 +345,6 @@ class GameState {
           console.log(`Game file with id ${gameId} loaded and parsed successfully`);
           // Update rotating display and relationship popup with game data
           if (this.gameData) {
-            updateRotatingDisplay(this.gameData, this.phaseIndex, this.currentPower);
             this.gameId = gameId
             updateGameIdDisplay();
             updateLeaderboard();

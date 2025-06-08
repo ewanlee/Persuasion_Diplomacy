@@ -81,9 +81,9 @@ function rotateToNextDisplay(): void {
   switch (currentDisplayType) {
     //FIXME: This should be turned back on. It's not rotating right now for some reason, and we need to fix that.
     //
-    // case DisplayType.SC_HISTORY_CHART:
-    //   currentDisplayType = DisplayType.RELATIONSHIP_HISTORY_CHART;
-    //   break;
+    case DisplayType.SC_HISTORY_CHART:
+      currentDisplayType = DisplayType.RELATIONSHIP_HISTORY_CHART;
+      break;
     case DisplayType.RELATIONSHIP_HISTORY_CHART:
       currentDisplayType = DisplayType.SC_HISTORY_CHART;
       break;
@@ -155,8 +155,7 @@ export function updateRotatingDisplay(
  */
 function renderSCHistoryChartView(
   container: HTMLElement,
-  gameData: GameSchemaType,
-  currentPhaseIndex: number
+  gameData: GameSchemaType
 ): void {
   // Create header
   const header = document.createElement('div');
@@ -167,8 +166,8 @@ function renderSCHistoryChartView(
   const scHistory = [];
   const allPowers = new Set<string>();
 
-  // Iterate through phases up to and including currentPhaseIndex
-  for (let i = 0; i <= currentPhaseIndex; i++) {
+  // Iterate through phases up to and including gameState.phaseIndex
+  for (let i = 0; i <= gameState.phaseIndex; i++) {
     const phase = gameData.phases[i];
     const phaseData: any = {
       phaseName: phase.name,
@@ -303,7 +302,7 @@ function renderSCHistoryChartView(
   }
 
   // Add a vertical line to indicate current phase
-  const currentPhaseX = xScale(currentPhaseIndex);
+  const currentPhaseX = xScale(gameState.phaseIndex);
   const currentPhaseLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
   currentPhaseLine.setAttribute("x1", `${currentPhaseX}`);
   currentPhaseLine.setAttribute("y1", `${margin.top}`);
@@ -352,7 +351,6 @@ function renderSCHistoryChartView(
   const phaseInfo = document.createElement('div');
   phaseInfo.style.fontSize = '12px';
   phaseInfo.style.marginTop = '5px';
-  phaseInfo.innerHTML = `Current phase: ${gameData.phases[currentPhaseIndex].name}`;
   container.appendChild(phaseInfo);
 }
 
