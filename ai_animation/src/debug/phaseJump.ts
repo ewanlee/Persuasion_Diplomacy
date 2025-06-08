@@ -123,13 +123,13 @@ function updatePhaseOptions(): void {
     const option = document.createElement('option');
     option.value = phase.name;
     option.textContent = `${index}: ${phase.name}`;
-    
+
     // Highlight current phase
     if (index === gameState.phaseIndex) {
       option.textContent += ' (current)';
       option.style.fontWeight = 'bold';
     }
-    
+
     select.appendChild(option);
   });
 
@@ -150,7 +150,7 @@ function jumpToPhase(phaseName: string): void {
 
   // Find the phase index by name
   const phaseIndex = gameState.gameData.phases.findIndex(phase => phase.name === phaseName);
-  
+
   if (phaseIndex === -1) {
     showFeedback(`Phase "${phaseName}" not found`, 'error');
     return;
@@ -165,10 +165,10 @@ function jumpToPhase(phaseName: string): void {
     // Use the existing _setPhase function to jump to the phase
     _setPhase(phaseIndex);
     showFeedback(`Jumped to phase "${phaseName}" (index ${phaseIndex})`, 'success');
-    
+
     // Update the dropdown to reflect the new current phase
-    setTimeout(updatePhaseOptions, 100);
-    
+    updatePhaseOptions();
+
   } catch (error) {
     showFeedback(`Error jumping to phase: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     console.error('Phase jump error:', error);
@@ -184,13 +184,13 @@ function showFeedback(message: string, type: 'success' | 'error' | 'info'): void
 
   const colors = {
     success: '#2e7d32',
-    error: '#d32f2f', 
+    error: '#d32f2f',
     info: '#1976d2'
   };
 
   feedback.textContent = message;
   feedback.style.color = colors[type];
-  
+
   // Clear feedback after 3 seconds
   setTimeout(() => {
     if (feedback.textContent === message) {
