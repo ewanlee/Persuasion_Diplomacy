@@ -19,7 +19,7 @@ import { updateLeaderboard } from "./components/leaderboard";
 //  Currently the location for label, unit, and SC are all the same manually picked location
 
 const isStreamingMode = import.meta.env.VITE_STREAMING_MODE
-const phaseStartIdx = 45;
+const phaseStartIdx = undefined;
 
 // --- INITIALIZE SCENE ---
 function initScene() {
@@ -49,7 +49,10 @@ function initScene() {
         updateLeaderboard();
 
         if (phaseStartIdx !== undefined) {
-          _setPhase(phaseStartIdx)
+          setTimeout(() => {
+            // FIXME: Race condition waiting to happen. I'm delaying this call as I'm too tired to do this properly right now.
+            _setPhase(phaseStartIdx)
+          }, 500)
         }
       })
 
