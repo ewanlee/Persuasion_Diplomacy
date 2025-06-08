@@ -30,7 +30,7 @@ const RELATIONSHIP_VALUES = {
 };
 
 // Module state
-let currentDisplayType: DisplayType = DisplayType.RELATIONSHIP_HISTORY_CHART;
+let currentDisplayType: DisplayType = DisplayType.SC_HISTORY_CHART;
 let lastRenderedDisplayType: DisplayType | null = null;
 let rotationTimer: number | null = null;
 let containerElement: HTMLElement | null = null;
@@ -79,11 +79,9 @@ function rotateToNextDisplay(): void {
 
   // Determine next display type
   switch (currentDisplayType) {
-    //FIXME: This should be turned back on. It's not rotating right now for some reason, and we need to fix that.
-    //
-    case DisplayType.SC_HISTORY_CHART:
-      currentDisplayType = DisplayType.RELATIONSHIP_HISTORY_CHART;
-      break;
+    // case DisplayType.SC_HISTORY_CHART:
+    //   currentDisplayType = DisplayType.RELATIONSHIP_HISTORY_CHART;
+    //   break;
     case DisplayType.RELATIONSHIP_HISTORY_CHART:
       currentDisplayType = DisplayType.SC_HISTORY_CHART;
       break;
@@ -124,7 +122,7 @@ export function updateRotatingDisplay(
 
     // Apply fade transition
     containerElement.style.transition = 'opacity 0.3s ease-out';
-    containerElement.style.opacity = '0';
+    //containerElement.style.opacity = '0';
 
     // Update content after fade-out
     setTimeout(() => {
@@ -274,6 +272,7 @@ function renderSCHistoryChartView(
     tickLabel.textContent = tick.toString();
     chart.appendChild(tickLabel);
   }
+  let paths = []
 
   // Draw lines for each power
   for (const power of powers) {
@@ -298,7 +297,7 @@ function renderSCHistoryChartView(
     path.setAttribute("stroke", POWER_COLORS[power] || "#000000");
     path.setAttribute("stroke-width", "2");
     path.setAttribute("fill", "none");
-    chart.appendChild(path);
+    paths.push(path);
   }
 
   // Add a vertical line to indicate current phase
@@ -341,17 +340,15 @@ function renderSCHistoryChartView(
 
     legendX += legendItemWidth;
   }
-
+  paths.forEach((path) => {
+    svg.appendChild(path)
+  })
   chart.appendChild(legendGroup);
+  svg.appendChild(chart)
 
   // Add the SVG to the container
   container.appendChild(svg);
 
-  // Add phase info
-  const phaseInfo = document.createElement('div');
-  phaseInfo.style.fontSize = '12px';
-  phaseInfo.style.marginTop = '5px';
-  container.appendChild(phaseInfo);
 }
 
 /**

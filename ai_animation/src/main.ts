@@ -211,11 +211,6 @@ fileInput.addEventListener('change', e => {
   const file = e.target.files[0];
   if (file) {
     loadGameBtnFunction(file);
-    // Explicitly hide standings board after loading game
-    // Update rotating display and relationship popup with game data
-    if (gameState.gameData) {
-      updateRotatingDisplay(gameState.gameData, gameState.phaseIndex, gameState.currentPower);
-    }
   }
 });
 

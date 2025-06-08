@@ -38,8 +38,7 @@ export function _setPhase(phaseIndex: number) {
     gameState.unitAnimations = [];
     initUnits(phaseIndex)
     gameState.phaseIndex = phaseIndex
-    updateMapOwnership()
-    updatePhaseDisplay()
+    displayPhase(true)
   } else {
     // Clear any existing animations to prevent overlap
     if (gameState.playbackTimer) {
@@ -96,11 +95,6 @@ export function togglePlayback(explicitSet: boolean) {
     logger.log("Starting playback...");
 
     if (gameState.cameraPanAnim) gameState.cameraPanAnim.getAll()[1].start()
-
-    // Update rotating display
-    if (gameState.gameData) {
-      updateRotatingDisplay(gameState.gameData, gameState.phaseIndex, gameState.currentPower);
-    }
 
     // First, show the messages of the current phase if it's the initial playback
     const phase = gameState.gameData.phases[gameState.phaseIndex];
@@ -200,7 +194,7 @@ export function displayPhase(skipMessages = false) {
 
 
   // Update UI elements with smooth transitions
-  updateRotatingDisplay(gameState.gameData, gameState.phaseIndex, gameState.currentPower);
+  updateRotatingDisplay(gameState.gameData, gameState.phaseIndex, gameState.currentPower, true);
   _updateMapOwnership();
 
   // Add phase info to news banner if not already there

@@ -45,15 +45,6 @@ export function updateSupplyCenterOwnership(centers) {
   });
 }
 
-export function updateLeaderboard() {
-  // Instead of directly updating the leaderboard HTML,
-  // use the rotating display component if game data exists
-  if (gameState.gameData) {
-    updateRotatingDisplay(gameState.gameData, gameState.phaseIndex, gameState.currentPower);
-  }
-}
-
-
 /**  Updates the ownership of the provinces in the gameState.boardState.provinces array and
  *  changes the color of the province on the map to correspond to the new owner's color. Or 
  *  the default color if province.owner is undefined.
