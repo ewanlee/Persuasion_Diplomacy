@@ -7,7 +7,7 @@ let containerElement = document.getElementById("leaderboard")
 
 export function initLeaderBoard() {
   if (!containerElement) {
-    console.error(`Container element with ID "${containerId}" not found`);
+    console.error(`Container element with ID "leaderboard" not found`);
     return;
   }
 }

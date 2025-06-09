@@ -9,7 +9,7 @@ import { initRotatingDisplay, } from "./components/rotatingDisplay";
 import { debugMenuInstance } from "./debug/debugMenu";
 import { initializeBackgroundAudio, startBackgroundAudio } from "./backgroundAudio";
 import { updateLeaderboard } from "./components/leaderboard";
-import { _setPhase } from "./phase";
+import { _setPhase, advanceToNextPhase, nextPhase } from "./phase";
 import { togglePlayback } from "./phase";
 
 //TODO: Create a function that finds a suitable unit location within a given polygon, for placing units better 
@@ -218,7 +218,7 @@ nextBtn.addEventListener('click', () => {
   nextPhase()
 });
 
-playBtn.addEventListener('click', togglePlayback);
+playBtn.addEventListener('click', () => { togglePlayback() });
 
 speedSelector.addEventListener('change', e => {
   config.playbackSpeed = parseInt(e.target.value);

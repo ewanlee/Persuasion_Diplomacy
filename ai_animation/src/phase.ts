@@ -73,7 +73,7 @@ export function _setPhase(phaseIndex: number) {
 }
 
 // --- PLAYBACK CONTROLS ---
-export function togglePlayback(explicitSet: boolean) {
+export function togglePlayback(explicitSet: boolean | undefined = undefined) {
   // If the game doesn't have any data, or there are no phases, return;
   if (!gameState.gameData || gameState.gameData.phases.length <= 0) {
     alert("This game file appears to be broken. Please reload the page and load a different game.")
