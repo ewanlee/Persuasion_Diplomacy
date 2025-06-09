@@ -40,13 +40,6 @@ export function showVictoryModal(options: VictoryModalOptions): void {
   // Set up event listeners
   setupEventListeners(onClose);
 
-  // Auto-dismiss in playing mode after delay
-  if (gameState.isPlaying) {
-    setTimeout(() => {
-      closeVictoryModal();
-      onClose?.();
-    }, 5000); // 5 second display in playing mode
-  }
 }
 
 /**
@@ -55,12 +48,10 @@ export function showVictoryModal(options: VictoryModalOptions): void {
 export function closeVictoryModal(): void {
   if (victoryModalOverlay) {
     victoryModalOverlay.classList.add('fade-out');
-    setTimeout(() => {
-      if (victoryModalOverlay?.parentNode) {
-        victoryModalOverlay.parentNode.removeChild(victoryModalOverlay);
-      }
-      victoryModalOverlay = null;
-    }, 300);
+    if (victoryModalOverlay?.parentNode) {
+      victoryModalOverlay.parentNode.removeChild(victoryModalOverlay);
+    }
+    victoryModalOverlay = null;
   }
 }
 
@@ -249,7 +240,7 @@ function createStandingsElement(finalStandings: Array<{ power: string; centers: 
     const standingItem = document.createElement('div');
     const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `${index + 1}.`;
     const displayName = getPowerDisplayName(entry.power as PowerENUM);
-    
+
     standingItem.innerHTML = `
       <span style="font-size: 18px; margin-right: 8px;">${medal}</span>
       <span class="power-${entry.power.toLowerCase()}" style="font-weight: bold;">${displayName}</span>

@@ -2,18 +2,15 @@ import * as THREE from "three";
 import "./style.css"
 import { initMap } from "./map/create";
 import { gameState } from "./gameState";
-import { logger } from "./logger";
 import { loadBtn, prevBtn, nextBtn, speedSelector, fileInput, playBtn, mapView, loadGameBtnFunction } from "./domElements";
-import { updateChatWindows } from "./domElements/chatWindows";
-import { displayPhaseWithAnimation, advanceToNextPhase, resetToPhase, nextPhase, previousPhase, togglePlayback, _setPhase } from "./phase";
 import { config } from "./config";
 import { Tween, Group, Easing } from "@tweenjs/tween.js";
-import { initRotatingDisplay, updateRotatingDisplay } from "./components/rotatingDisplay";
-import { closeTwoPowerConversation, showTwoPowerConversation } from "./components/twoPowerConversation";
-import { PowerENUM } from "./types/map";
+import { initRotatingDisplay, } from "./components/rotatingDisplay";
 import { debugMenuInstance } from "./debug/debugMenu";
 import { initializeBackgroundAudio, startBackgroundAudio } from "./backgroundAudio";
 import { updateLeaderboard } from "./components/leaderboard";
+import { _setPhase } from "./phase";
+import { togglePlayback } from "./phase";
 
 //TODO: Create a function that finds a suitable unit location within a given polygon, for placing units better 
 //  Currently the location for label, unit, and SC are all the same manually picked location
@@ -161,7 +158,6 @@ function animate() {
         // FIXME: This is a dumb patch for us not being able to find the unit we expect to find.
         //    We should instead bee figuring out why units aren't where we expect them to be when the engine has said that is a valid move
         nextPhase()
-        gameState.nextPhaseScheduled;
       }
     }, config.effectivePlaybackSpeed);
   }

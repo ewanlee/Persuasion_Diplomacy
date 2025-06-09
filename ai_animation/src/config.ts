@@ -4,7 +4,7 @@
 export const config = {
   // Default speed in milliseconds for animations and transitions
   playbackSpeed: 500,
-
+  victoryModalDisplayMs: 10000,
   // Streaming mode specific timing
   get streamingPlaybackSpeed(): number {
     const isStreamingMode = import.meta.env.MODE === 'production'
