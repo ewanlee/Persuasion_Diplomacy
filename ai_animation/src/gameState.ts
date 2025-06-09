@@ -1,5 +1,4 @@
 import * as THREE from "three"
-import { updateRotatingDisplay } from "./components/rotatingDisplay";
 import { type CoordinateData, CoordinateDataSchema, PowerENUM } from "./types/map"
 import type { GameSchemaType } from "./types/gameState";
 import { debugMenuInstance } from "./debug/debugMenu.ts"
@@ -154,24 +153,23 @@ class GameState {
 
     return new Promise((resolve, reject) => {
       try {
-        gameData = GameSchema.parse(JSON.parse(gameData));
-        this.gameData = gameData
+        this.gameData = GameSchema.parse(JSON.parse(gameData));
         // Log data structure for debugging
         console.log("Loading game data with structure:",
-          `${gameData.phases?.length || 0} phases, ` +
-          `orders format: ${gameData.phases?.[0]?.orders ? (Array.isArray(gameData.phases[0].orders) ? 'array' : 'object') : 'none'}`
+          `${this.gameData.phases?.length || 0} phases, ` +
+          `orders format: ${this.gameData.phases?.[0]?.orders ? (Array.isArray(this.gameData.phases[0].orders) ? 'array' : 'object') : 'none'}`
         );
 
         // Show a sample of the first phase for diagnostic purposes
-        if (gameData.phases && gameData.phases.length > 0) {
+        if (this.gameData.phases && this.gameData.phases.length > 0) {
           console.log("First phase sample:", {
-            name: gameData.phases[0].name,
-            ordersCount: gameData.phases[0].orders ?
-              (Array.isArray(gameData.phases[0].orders) ?
-                gameData.phases[0].orders.length :
-                Object.keys(gameData.phases[0].orders).length) : 0,
-            ordersType: gameData.phases[0].orders ? typeof gameData.phases[0].orders : 'none',
-            unitsCount: gameData.phases[0].units ? gameData.phases[0].units.length : 0
+            name: this.gameData.phases[0].name,
+            ordersCount: this.gameData.phases[0].orders ?
+              (Array.isArray(this.gameData.phases[0].orders) ?
+                this.gameData.phases[0].orders.length :
+                Object.keys(this.gameData.phases[0].orders).length) : 0,
+            ordersType: this.gameData.phases[0].orders ? typeof this.gameData.phases[0].orders : 'none',
+            unitsCount: this.gameData.phases[0].units ? this.gameData.phases[0].units.length : 0
           });
         }
 
@@ -267,6 +265,7 @@ class GameState {
         })
         .catch(error => {
           console.error(error);
+          reject()
           throw error
         });
     })
@@ -332,7 +331,7 @@ class GameState {
   /*
    * Given a gameId, load that game's state into the GameState Object
    */
-  loadGameFile = (gameId: number): Promise<void> => {
+  loadGameFile = (gameId: number | undefined = undefined): Promise<void> => {
     if (gameId === undefined) {
       gameId = gameState.gameId
     }
