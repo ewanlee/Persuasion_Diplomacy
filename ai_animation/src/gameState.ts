@@ -2,6 +2,8 @@ import * as THREE from "three"
 import { updateRotatingDisplay } from "./components/rotatingDisplay";
 import { type CoordinateData, CoordinateDataSchema, PowerENUM } from "./types/map"
 import type { GameSchemaType } from "./types/gameState";
+import { debugMenuInstance } from "./debug/debugMenu.ts"
+import { config } from "./config.ts"
 import { GameSchema } from "./types/gameState";
 import { prevBtn, nextBtn, playBtn, speedSelector, mapView, updateGameIdDisplay } from "./domElements";
 import { createChatWindows } from "./domElements/chatWindows";
@@ -11,6 +13,7 @@ import { displayInitialPhase, togglePlayback } from "./phase";
 import { Tween, Group as TweenGroup } from "@tweenjs/tween.js";
 import { MomentsDataSchema, Moment, NormalizedMomentsData } from "./types/moments";
 import { updateLeaderboard } from "./components/leaderboard";
+import { closeVictoryModal } from "./components/victoryModal.ts";
 
 //FIXME: This whole file is a mess. Need to organize and format
 
@@ -123,7 +126,7 @@ class GameState {
     this.phaseIndex = 0
     this.boardName = boardName
     this.currentPower = null;
-    this.gameId = 12
+    this.gameId = 16
 
     this.momentsData = null; // Initialize as null, will be loaded later
     // State locks
@@ -226,6 +229,7 @@ class GameState {
 
               // Update game ID display
               updateGameIdDisplay();
+
             })
           resolve()
         } else {
@@ -300,16 +304,19 @@ class GameState {
   /*
    * Loads the next game in the order, reseting the board and gameState
    */
-  loadNextGame = () => {
+  loadNextGame = (setPlayback: boolean = false) => {
+
     let gameId = this.gameId + 1
     let contPlaying = false
-    if (this.isPlaying) {
+    if (setPlayback || this.isPlaying) {
       contPlaying = true
     }
     this.loadGameFile(gameId).then(() => {
-
+      gameState.gameId = gameId
       if (contPlaying) {
-        togglePlayback(true)
+        setTimeout(() => {
+          togglePlayback(true)
+        }, config.victoryModalDisplayMs)
       }
     }).catch(() => {
       console.warn("caught error trying to advance game. Setting gameId to 0 and restarting...")
@@ -317,7 +324,7 @@ class GameState {
       if (contPlaying) {
         togglePlayback(true)
       }
-    })
+    }).finally(closeVictoryModal)
 
 
   }
@@ -348,6 +355,9 @@ class GameState {
             this.gameId = gameId
             updateGameIdDisplay();
             updateLeaderboard();
+            if (config.isDebugMode) {
+              debugMenuInstance.updateTools()
+            }
             resolve()
           }
         })

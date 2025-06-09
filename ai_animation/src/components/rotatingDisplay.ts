@@ -79,9 +79,9 @@ function rotateToNextDisplay(): void {
 
   // Determine next display type
   switch (currentDisplayType) {
-    // case DisplayType.SC_HISTORY_CHART:
-    //   currentDisplayType = DisplayType.RELATIONSHIP_HISTORY_CHART;
-    //   break;
+    case DisplayType.SC_HISTORY_CHART:
+      currentDisplayType = DisplayType.RELATIONSHIP_HISTORY_CHART;
+      break;
     case DisplayType.RELATIONSHIP_HISTORY_CHART:
       currentDisplayType = DisplayType.SC_HISTORY_CHART;
       break;
@@ -155,6 +155,9 @@ function renderSCHistoryChartView(
   container: HTMLElement,
   gameData: GameSchemaType
 ): void {
+
+  // TODO: This likely needs to not be a custom rendered svg. There are plenty of charting libraries to use to do this instead.
+  //
   // Create header
   const header = document.createElement('div');
   header.innerHTML = `<strong>Supply Center History</strong>`;
