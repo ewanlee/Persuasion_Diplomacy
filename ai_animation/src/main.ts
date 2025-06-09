@@ -9,7 +9,7 @@ import { initRotatingDisplay, } from "./components/rotatingDisplay";
 import { debugMenuInstance } from "./debug/debugMenu";
 import { initializeBackgroundAudio, startBackgroundAudio } from "./backgroundAudio";
 import { updateLeaderboard } from "./components/leaderboard";
-import { _setPhase, advanceToNextPhase, nextPhase } from "./phase";
+import { _setPhase, advanceToNextPhase, nextPhase, previousPhase } from "./phase";
 import { togglePlayback } from "./phase";
 
 //TODO: Create a function that finds a suitable unit location within a given polygon, for placing units better 
@@ -117,6 +117,7 @@ function createCameraPan(): Group {
  * Handles camera movement, animations, and game state transitions
  */
 function animate() {
+
 
   requestAnimationFrame(animate);
   if (gameState.isPlaying) {

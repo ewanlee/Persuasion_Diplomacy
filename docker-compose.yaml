@@ -23,13 +23,11 @@ services:
     env_file: "./ai_animation/.env"
     ports:
       - "4173:4173"
-      - "5173:5173"
     volumes:
       - ./ai_animation/public/games/:/app/dist/games
   diplomacy-dev:
     build: ai_animation
     ports:
-      - "4173:4173"
       - "5173:5173"
     command: ["npm", "run", "dev-all"]
     volumes:

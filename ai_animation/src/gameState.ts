@@ -82,13 +82,13 @@ function loadFileFromServer(filePath: string): Promise<string> {
 
 
 class GameState {
-  boardState: CoordinateData
+  boardState!: CoordinateData
   gameId: number
-  gameData: GameSchemaType
-  momentsData: NormalizedMomentsData | null
+  gameData!: GameSchemaType
+  momentsData!: NormalizedMomentsData
   phaseIndex: number
   boardName: string
-  currentPower: PowerENUM
+  currentPower!: PowerENUM
 
   // state locks
   messagesPlaying: boolean
@@ -102,9 +102,9 @@ class GameState {
   scene: THREE.Scene
 
   // camera and controls
-  camControls: OrbitControls
-  camera: THREE.PerspectiveCamera
-  renderer: THREE.WebGLRenderer
+  camControls!: OrbitControls
+  camera!: THREE.PerspectiveCamera
+  renderer!: THREE.WebGLRenderer
 
   unitMeshes: THREE.Group[]
 
@@ -112,10 +112,10 @@ class GameState {
   unitAnimations: Tween[]
 
   //
-  playbackTimer: number
+  playbackTimer!: number
 
   // Camera Animation during playing
-  cameraPanAnim: TweenGroup | undefined
+  cameraPanAnim!: TweenGroup
 
   // Global timing for animations
   globalTime: number
@@ -124,10 +124,8 @@ class GameState {
   constructor(boardName: AvailableMaps) {
     this.phaseIndex = 0
     this.boardName = boardName
-    this.currentPower = null;
     this.gameId = 16
 
-    this.momentsData = null; // Initialize as null, will be loaded later
     // State locks
     this.isSpeaking = false
     this.isPlaying = false
@@ -169,7 +167,6 @@ class GameState {
                 this.gameData.phases[0].orders.length :
                 Object.keys(this.gameData.phases[0].orders).length) : 0,
             ordersType: this.gameData.phases[0].orders ? typeof this.gameData.phases[0].orders : 'none',
-            unitsCount: this.gameData.phases[0].units ? this.gameData.phases[0].units.length : 0
           });
         }
 
