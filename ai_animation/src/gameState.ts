@@ -1,9 +1,9 @@
 import * as THREE from "three"
 import { type CoordinateData, CoordinateDataSchema, PowerENUM } from "./types/map"
-import type { GameSchemaType } from "./types/gameState";
+import type { GameSchemaType, Message } from "./types/gameState";
 import { debugMenuInstance } from "./debug/debugMenu.ts"
 import { config } from "./config.ts"
-import { GameSchema } from "./types/gameState";
+import { GameSchema, type MessageSchema } from "./types/gameState";
 import { prevBtn, nextBtn, playBtn, speedSelector, mapView, updateGameIdDisplay } from "./domElements";
 import { createChatWindows } from "./domElements/chatWindows";
 import { logger } from "./logger";
@@ -92,6 +92,7 @@ class GameState {
 
   // state locks
   messagesPlaying: boolean
+  phaseChatMessages: Message[]
   isPlaying: boolean
   isSpeaking: boolean
   isAnimating: boolean
@@ -125,6 +126,7 @@ class GameState {
     this.phaseIndex = 0
     this.boardName = boardName
     this.gameId = 16
+    this.phaseChatMessages = []
 
     // State locks
     this.isSpeaking = false
@@ -419,6 +421,9 @@ class GameState {
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
     dirLight.position.set(300, 400, 300);
     this.scene.add(dirLight);
+  }
+  get currentPhase() {
+    return this.gameData.phases[this.phaseIndex]
   }
 }
 

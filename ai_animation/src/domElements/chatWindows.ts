@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { gameState } from "../gameState";
 import { config } from "../config";
 import { advanceToNextPhase } from "../phase";
+import { GamePhase, Message } from "../types/gameState";
 import { getPowerDisplayName, getAllPowerDisplayNames } from '../utils/powerNames';
 import { PowerENUM } from '../types/map';
 
@@ -13,7 +14,16 @@ let faceIconCache = {}; // Cache for generated face icons
 
 // Add a message counter to track sound effect frequency
 let messageCounter = 0;
-let chatWindows = {}; // Store chat window elements by power
+type chatWindowMap = { [key in PowerENUM]: {
+  element: HTMLHtmlElement,
+  messagesContainer: HTMLHtmlElement,
+  isGlobal: boolean,
+  seenMessages: Set<Message>
+} }
+
+
+let chatWindows: chatWindowMap
+
 // --- CHAT WINDOW FUNCTIONS ---
 export function createChatWindows() {
   // Clear existing chat windows
@@ -136,22 +146,48 @@ function createChatWindow(power, isGlobal = false) {
   };
 }
 
+function fiterAndSortChatMessagesForPhase(phase: GamePhase): Message[] {
+
+  let relevantMessages = phase.messages.filter(msg => {
+    return (
+      msg.sender === gameState.currentPower ||
+      msg.recipient === gameState.currentPower ||
+      msg.recipient === 'GLOBAL'
+    );
+  });
+  relevantMessages.sort((a, b) => a.time_sent - b.time_sent);
+  return relevantMessages
+}
+/**
+ * updates the gameState.phaseChatMessages array to the messages for this phase.
+ *
+ */
+export function initChatMessagesForPhase() {
+  gameState.phaseChatMessages = []
+  gameState.phaseChatMessages = fiterAndSortChatMessagesForPhase(gameState.gameData.phases[gameState.phaseIndex])
+}
+
+function playChatMessage(messageIndex) {
+  addMessageToChat(gameState.currentPhase)
+
+}
 // Modified to accumulate messages instead of resetting and only animate for new messages
 /**
  * Updates chat windows with messages for the current phase
  * @param phase The current game phase containing messages
  * @param stepMessages Whether to animate messages one-by-word (true) or show all at once (false)
  */
-export function updateChatWindows(phase: any, stepMessages = false) {
+export function updateChatWindows(stepMessages = false) {
+  gameState.messagesPlaying = true
   // Exit early if no messages
-  if (!phase.messages || !phase.messages.length) {
+  if (!gameState.currentPhase.messages || !gameState.currentPhase.messages.length) {
     console.log("No messages to display for this phase");
     gameState.messagesPlaying = false;
     return;
   }
 
   // Only show messages relevant to the current player (sent by them, to them, or global)
-  const relevantMessages = phase.messages.filter(msg => {
+  const relevantMessages = gameState.currentPhase.messages.filter(msg => {
     return (
       msg.sender === gameState.currentPower ||
       msg.recipient === gameState.currentPower ||
@@ -164,13 +200,13 @@ export function updateChatWindows(phase: any, stepMessages = false) {
 
   // Log message count but only in debug mode to reduce noise
   if (config.isDebugMode) {
-    console.log(`Found ${relevantMessages.length} messages for player ${gameState.currentPower} in phase ${phase.name}`);
+    console.log(`Found ${relevantMessages.length} messages for player ${gameState.currentPower} in phase ${gameState.currentPhase.name}`);
   }
 
   if (!stepMessages || config.isInstantMode) {
     // Normal mode or instant chat mode: show all messages at once
     relevantMessages.forEach(msg => {
-      const isNew = addMessageToChat(msg, phase.name);
+      const isNew = addMessageToChat(msg);
       if (isNew) {
         // Increment message counter and play sound on every third message
         messageCounter++;
@@ -235,7 +271,7 @@ export function updateChatWindows(phase: any, stepMessages = false) {
       };
 
       // Add the message with word animation
-      const isNew = addMessageToChat(msg, phase.name, true, onMessageComplete);
+      const isNew = addMessageToChat(msg, true, onMessageComplete);
 
       // Handle non-new messages
       if (!isNew) {
@@ -253,7 +289,7 @@ export function updateChatWindows(phase: any, stepMessages = false) {
 }
 
 // Modified to support word-by-word animation and callback
-function addMessageToChat(msg, phaseName, animateWords = false, onComplete = null) {
+function addMessageToChat(msg: Message, animateWords: boolean = false, onComplete: Function | null = null) {
   // Determine which chat window to use
   let targetPower;
   if (msg.recipient === 'GLOBAL') {
@@ -298,7 +334,7 @@ function addMessageToChat(msg, phaseName, animateWords = false, onComplete = nul
     // Add timestamp
     const timeDiv = document.createElement('div');
     timeDiv.className = 'message-time';
-    timeDiv.textContent = phaseName;
+    timeDiv.textContent = gameState.currentPhase.name;
     messageElement.appendChild(timeDiv);
   } else {
     // Private chat - outgoing or incoming style
@@ -313,7 +349,7 @@ function addMessageToChat(msg, phaseName, animateWords = false, onComplete = nul
     // Add timestamp
     const timeDiv = document.createElement('div');
     timeDiv.className = 'message-time';
-    timeDiv.textContent = phaseName;
+    timeDiv.textContent = gameState.currentPhase.name;
     messageElement.appendChild(timeDiv);
   }
 
