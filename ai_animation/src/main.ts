@@ -9,7 +9,7 @@ import { initRotatingDisplay, } from "./components/rotatingDisplay";
 import { debugMenuInstance } from "./debug/debugMenu";
 import { initializeBackgroundAudio, startBackgroundAudio } from "./backgroundAudio";
 import { updateLeaderboard } from "./components/leaderboard";
-import { _setPhase, advanceToNextPhase, nextPhase, previousPhase } from "./phase";
+import { _setPhase, advanceToNextPhase, displayInitialPhase, nextPhase, previousPhase } from "./phase";
 import { togglePlayback } from "./phase";
 
 //TODO: Create a function that finds a suitable unit location within a given polygon, for placing units better 
@@ -126,6 +126,21 @@ function animate() {
     gameState.cameraPanAnim.update();
     gameState.cameraPanAnim.update();
 
+    // If all animations are complete 
+    if (gameState.unitAnimations.length === 0 && !gameState.messagesPlaying && !gameState.isSpeaking && !gameState.nextPhaseScheduled) {
+      // Schedule next phase after a pause delay
+      console.log(`Scheduling next phase in ${config.effectivePlaybackSpeed}ms`);
+      gameState.nextPhaseScheduled = true;
+      gameState.playbackTimer = setTimeout(() => {
+        try {
+          advanceToNextPhase()
+        } catch {
+          // FIXME: This is a dumb patch for us not being able to find the unit we expect to find.
+          //    We should instead bee figuring out why units aren't where we expect them to be when the engine has said that is a valid move
+          nextPhase()
+        }
+      }, config.effectivePlaybackSpeed);
+    }
   } else {
     // Manual camera controls when not in playback mode
     gameState.camControls.update();
@@ -147,21 +162,6 @@ function animate() {
 
   }
 
-  // If all animations are complete and we're in playback mode
-  if (gameState.unitAnimations.length === 0 && gameState.isPlaying && !gameState.messagesPlaying && !gameState.isSpeaking && !gameState.nextPhaseScheduled) {
-    // Schedule next phase after a pause delay
-    console.log(`Scheduling next phase in ${config.effectivePlaybackSpeed}ms`);
-    gameState.nextPhaseScheduled = true;
-    gameState.playbackTimer = setTimeout(() => {
-      try {
-        advanceToNextPhase()
-      } catch {
-        // FIXME: This is a dumb patch for us not being able to find the unit we expect to find.
-        //    We should instead bee figuring out why units aren't where we expect them to be when the engine has said that is a valid move
-        nextPhase()
-      }
-    }, config.effectivePlaybackSpeed);
-  }
   // Update any pulsing or wave animations on supply centers or units
   if (gameState.scene.userData.animatedObjects) {
     gameState.scene.userData.animatedObjects.forEach(obj => {

@@ -35,7 +35,6 @@ export function _setPhase(phaseIndex: number) {
   if (config.isDebugMode) {
     debugMenuInstance.updateTools()
   }
-  const gameLength = gameState.gameData.phases.length
 
 
   // Validate that the phaseIndex is within the bounds of the game length.
@@ -73,6 +72,12 @@ export function _setPhase(phaseIndex: number) {
 }
 
 // --- PLAYBACK CONTROLS ---
+/**
+ * Updates the gameState.isPlaying variable, toggling it from current position. Updates UI Elements to indicate current state.
+ *
+ * @param explicitSet - If you need to set the state to playing or not, use this with the bool of what you want the state to be.
+ *
+ */
 export function togglePlayback(explicitSet: boolean | undefined = undefined) {
   // If the game doesn't have any data, or there are no phases, return;
   if (!gameState.gameData || gameState.gameData.phases.length <= 0) {
@@ -98,15 +103,14 @@ export function togglePlayback(explicitSet: boolean | undefined = undefined) {
     if (gameState.cameraPanAnim) gameState.cameraPanAnim.getAll()[1].start()
 
     // First, show the messages of the current phase if it's the initial playback
-    const phase = gameState.gameData.phases[gameState.phaseIndex];
-    if (phase.messages && phase.messages.length) {
+    if (gameState.currentPhase.messages && gameState.currentPhase.messages.length) {
       // Show messages with stepwise animation
-      logger.log(`Playing ${phase.messages.length} messages from phase ${gameState.phaseIndex + 1}/${gameState.gameData.phases.length}`);
-      updateChatWindows(phase, true);
+      logger.log(`Playing ${gameState.currentPhase.messages.length} messages from phase ${gameState.phaseIndex + 1}/${gameState.gameData.phases.length}`);
+      gameState.nextPhaseScheduled = true
+      displayPhase()
     } else {
       // No messages, go straight to unit animations
       logger.log("No messages for this phase, proceeding to animations");
-      displayPhaseWithAnimation();
     }
   } else {
     if (gameState.cameraPanAnim) gameState.cameraPanAnim.getAll()[0].pause();
@@ -211,7 +215,7 @@ export function displayPhase(skipMessages = false) {
 
   // Show messages with animation or immediately based on skipMessages flag
   if (!skipMessages) {
-    updateChatWindows(currentPhase, true);
+    updateChatWindows(true);
   } else {
     gameState.messagesPlaying = false;
   }
@@ -234,7 +238,6 @@ export function displayPhase(skipMessages = false) {
     }
   } else {
     logger.log("No animations for this phase transition");
-    gameState.messagesPlaying = false;
   }
   gameState.nextPhaseScheduled = false;
 
