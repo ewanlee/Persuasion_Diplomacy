@@ -1,16 +1,19 @@
 import * as THREE from "three"
-import { updateRotatingDisplay } from "./components/rotatingDisplay";
 import { type CoordinateData, CoordinateDataSchema, PowerENUM } from "./types/map"
-import type { GameSchemaType } from "./types/gameState";
-import { GameSchema } from "./types/gameState";
-import { prevBtn, nextBtn, playBtn, speedSelector, mapView, updateGameIdDisplay } from "./domElements";
+import type { GameSchemaType, Message } from "./types/gameState";
+import { debugMenuInstance } from "./debug/debugMenu.ts"
+import { config } from "./config.ts"
+import { GameSchema, type MessageSchema } from "./types/gameState";
+import { prevBtn, nextBtn, playBtn, speedSelector, mapView, updateGameIdDisplay, updatePhaseDisplay } from "./domElements";
 import { createChatWindows } from "./domElements/chatWindows";
 import { logger } from "./logger";
 import { OrbitControls } from "three/examples/jsm/Addons.js";
 import { displayInitialPhase, togglePlayback } from "./phase";
 import { Tween, Group as TweenGroup } from "@tweenjs/tween.js";
-import { hideStandingsBoard, } from "./domElements/standingsBoard";
 import { MomentsDataSchema, Moment, NormalizedMomentsData } from "./types/moments";
+import { updateLeaderboard } from "./components/leaderboard";
+import { closeVictoryModal } from "./components/victoryModal.ts";
+import { EventQueue } from "./types/events";
 
 //FIXME: This whole file is a mess. Need to organize and format
 
@@ -26,28 +29,28 @@ function getRandomPower(gameData?: GameSchemaType): PowerENUM {
   const allPowers = Object.values(PowerENUM).filter(power =>
     power !== PowerENUM.GLOBAL && power !== PowerENUM.EUROPE
   );
-  
+
   // If no game data provided, return any random power
   if (!gameData || !gameData.phases || gameData.phases.length === 0) {
     const idx = Math.floor(Math.random() * allPowers.length);
     return allPowers[idx];
   }
-  
+
   // Get the last phase to check supply centers
   const lastPhase = gameData.phases[gameData.phases.length - 1];
-  
+
   // Filter powers that have more than 2 supply centers
   const eligiblePowers = allPowers.filter(power => {
     const centers = lastPhase.state?.centers?.[power];
     return centers && centers.length > 2;
   });
-  
+
   // If no powers have more than 2 centers, fall back to any power
   if (eligiblePowers.length === 0) {
     const idx = Math.floor(Math.random() * allPowers.length);
     return allPowers[idx];
   }
-  
+
   const idx = Math.floor(Math.random() * eligiblePowers.length);
   return eligiblePowers[idx];
 }
@@ -80,65 +83,59 @@ function loadFileFromServer(filePath: string): Promise<string> {
 
 
 class GameState {
-  boardState: CoordinateData
+  boardState!: CoordinateData
   gameId: number
-  gameData: GameSchemaType
-  momentsData: NormalizedMomentsData | null
-  phaseIndex: number
+  gameData!: GameSchemaType
+  momentsData!: NormalizedMomentsData
+  _phaseIndex: number
   boardName: string
-  currentPower: PowerENUM
-
-  // state locks
-  messagesPlaying: boolean
+  currentPower!: PowerENUM
   isPlaying: boolean
-  isSpeaking: boolean
-  isAnimating: boolean
-  isDisplayingMoment: boolean // Used when we're displaying a moment, should pause all other items
-  nextPhaseScheduled: boolean // Flag to prevent multiple phase transitions being scheduled
+
 
   //Scene for three.js
   scene: THREE.Scene
 
   // camera and controls
-  camControls: OrbitControls
-  camera: THREE.PerspectiveCamera
-  renderer: THREE.WebGLRenderer
+  camControls!: OrbitControls
+  camera!: THREE.PerspectiveCamera
+  renderer!: THREE.WebGLRenderer
 
   unitMeshes: THREE.Group[]
 
   // Animations needed for this turn
   unitAnimations: Tween[]
 
-  //
-  playbackTimer: number
-
   // Camera Animation during playing
-  cameraPanAnim: TweenGroup | undefined
+  cameraPanAnim!: TweenGroup
 
   // Global timing for animations
   globalTime: number
   deltaTime: number
 
+  // Event queue for deterministic animations
+  eventQueue: EventQueue
+
   constructor(boardName: AvailableMaps) {
-    this.phaseIndex = 0
+    this._phaseIndex = 0
     this.boardName = boardName
-    this.currentPower = null;
-    this.gameId = 1
-    this.momentsData = null; // Initialize as null, will be loaded later
-    // State locks
-    this.isSpeaking = false
+    this.gameId = 0
     this.isPlaying = false
-    this.isAnimating = false
-    this.isDisplayingMoment = false
-    this.messagesPlaying = false
-    this.nextPhaseScheduled = false
 
     this.scene = new THREE.Scene()
     this.unitMeshes = []
     this.unitAnimations = []
     this.globalTime = 0
     this.deltaTime = 0
+    this.eventQueue = new EventQueue()
     this.loadBoardState()
+  }
+  set phaseIndex(val: number) {
+    this._phaseIndex = val
+    updatePhaseDisplay()
+  }
+  get phaseIndex() {
+    return this._phaseIndex
   }
 
   /**
@@ -150,24 +147,22 @@ class GameState {
 
     return new Promise((resolve, reject) => {
       try {
-        gameData = GameSchema.parse(JSON.parse(gameData));
-        this.gameData = gameData
+        this.gameData = GameSchema.parse(JSON.parse(gameData));
         // Log data structure for debugging
         console.log("Loading game data with structure:",
-          `${gameData.phases?.length || 0} phases, ` +
-          `orders format: ${gameData.phases?.[0]?.orders ? (Array.isArray(gameData.phases[0].orders) ? 'array' : 'object') : 'none'}`
+          `${this.gameData.phases?.length || 0} phases, ` +
+          `orders format: ${this.gameData.phases?.[0]?.orders ? (Array.isArray(this.gameData.phases[0].orders) ? 'array' : 'object') : 'none'}`
         );
 
         // Show a sample of the first phase for diagnostic purposes
-        if (gameData.phases && gameData.phases.length > 0) {
+        if (this.gameData.phases && this.gameData.phases.length > 0) {
           console.log("First phase sample:", {
-            name: gameData.phases[0].name,
-            ordersCount: gameData.phases[0].orders ?
-              (Array.isArray(gameData.phases[0].orders) ?
-                gameData.phases[0].orders.length :
-                Object.keys(gameData.phases[0].orders).length) : 0,
-            ordersType: gameData.phases[0].orders ? typeof gameData.phases[0].orders : 'none',
-            unitsCount: gameData.phases[0].units ? gameData.phases[0].units.length : 0
+            name: this.gameData.phases[0].name,
+            ordersCount: this.gameData.phases[0].orders ?
+              (Array.isArray(this.gameData.phases[0].orders) ?
+                this.gameData.phases[0].orders.length :
+                Object.keys(this.gameData.phases[0].orders).length) : 0,
+            ordersType: this.gameData.phases[0].orders ? typeof this.gameData.phases[0].orders : 'none',
           });
         }
 
@@ -193,6 +188,8 @@ class GameState {
             .then((data) => {
               const parsedData = JSON.parse(data);
 
+              // FIXME: Why do we have two different moments data types?!? There should only be a single one.
+              //
               // Check if this is the comprehensive format and normalize it
               if ('analysis_results' in parsedData && parsedData.analysis_results) {
                 // Transform comprehensive format to animation format
@@ -225,6 +222,7 @@ class GameState {
 
               // Update game ID display
               updateGameIdDisplay();
+
             })
           resolve()
         } else {
@@ -262,6 +260,7 @@ class GameState {
         })
         .catch(error => {
           console.error(error);
+          reject()
           throw error
         });
     })
@@ -299,16 +298,26 @@ class GameState {
   /*
    * Loads the next game in the order, reseting the board and gameState
    */
-  loadNextGame = () => {
+  loadNextGame = (setPlayback: boolean = false) => {
+    // Ensure any open overlays are cleaned up before loading next game
+    if (this.isDisplayingMoment) {
+      // Import at runtime to avoid circular dependency
+      import('./components/twoPowerConversation').then(({ closeTwoPowerConversation }) => {
+        closeTwoPowerConversation(true);
+      });
+    }
+
     let gameId = this.gameId + 1
     let contPlaying = false
-    if (this.isPlaying) {
+    if (setPlayback || this.isPlaying) {
       contPlaying = true
     }
     this.loadGameFile(gameId).then(() => {
-
+      gameState.gameId = gameId
       if (contPlaying) {
-        togglePlayback(true)
+        this.eventQueue.scheduleDelay(config.victoryModalDisplayMs, () => {
+          togglePlayback(true)
+        }, `load-next-game-playback-${Date.now()}`)
       }
     }).catch(() => {
       console.warn("caught error trying to advance game. Setting gameId to 0 and restarting...")
@@ -316,7 +325,7 @@ class GameState {
       if (contPlaying) {
         togglePlayback(true)
       }
-    })
+    }).finally(closeVictoryModal)
 
 
   }
@@ -324,7 +333,10 @@ class GameState {
   /*
    * Given a gameId, load that game's state into the GameState Object
    */
-  loadGameFile = (gameId: number): Promise<void> => {
+  loadGameFile = (gameId: number | undefined = undefined): Promise<void> => {
+    if (gameId === undefined) {
+      gameId = gameState.gameId
+    }
 
     if (gameId === null || gameId < 0) {
       throw Error(`Attempted to load game with invalid ID ${gameId}`)
@@ -339,13 +351,14 @@ class GameState {
       })
         .then(() => {
           console.log(`Game file with id ${gameId} loaded and parsed successfully`);
-          // Explicitly hide standings board after loading game
-          hideStandingsBoard();
           // Update rotating display and relationship popup with game data
           if (this.gameData) {
-            updateRotatingDisplay(this.gameData, this.phaseIndex, this.currentPower);
             this.gameId = gameId
             updateGameIdDisplay();
+            updateLeaderboard();
+            if (config.isDebugMode) {
+              debugMenuInstance.updateTools()
+            }
             resolve()
           }
         })
@@ -359,7 +372,7 @@ class GameState {
 
   checkPhaseHasMoment = (phaseName: string): Moment | null => {
     let momentMatch = this.momentsData.moments.filter((moment) => {
-      return moment.phase === phaseName
+      return moment.phase === phaseName && moment.raw_messages.length > 0
     })
 
     // If there is more than one moment per turn, only return the largest one.
@@ -376,9 +389,7 @@ class GameState {
     if (mapView === null) {
       throw Error("Cannot find mapView element, unable to continue.")
     }
-    
-    const isStreamingMode = import.meta.env.VITE_STREAMING_MODE === 'True' || import.meta.env.VITE_STREAMING_MODE === 'true';
-    
+
     this.scene.background = new THREE.Color(0x87CEEB);
 
     // Camera
@@ -389,28 +400,17 @@ class GameState {
       3000
     );
     this.camera.position.set(0, 800, 900); // MODIFIED: Increased z-value to account for map shift
-    
+
     // Renderer with streaming optimizations
-    this.renderer = new THREE.WebGLRenderer({ 
-      antialias: !isStreamingMode, // Disable antialiasing in streaming mode
+    this.renderer = new THREE.WebGLRenderer({
       powerPreference: "high-performance",
-      preserveDrawingBuffer: isStreamingMode // Required for streaming
     });
     this.renderer.setSize(mapView.clientWidth, mapView.clientHeight);
-    
-    // Force lower pixel ratio for streaming to reduce GPU load
-    if (isStreamingMode) {
-      this.renderer.setPixelRatio(1);
-    } else {
-      this.renderer.setPixelRatio(window.devicePixelRatio);
-    }
-    
+
     mapView.appendChild(this.renderer.domElement);
 
     // Controls with streaming optimizations
     this.camControls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.camControls.enableDamping = !isStreamingMode; // Disable damping for immediate response
-    this.camControls.dampingFactor = 0.05;
     this.camControls.screenSpacePanning = true;
     this.camControls.minDistance = 100;
     this.camControls.maxDistance = 2000;
@@ -424,6 +424,9 @@ class GameState {
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
     dirLight.position.set(300, 400, 300);
     this.scene.add(dirLight);
+  }
+  get currentPhase() {
+    return this.gameData.phases[this.phaseIndex]
   }
 }
 
