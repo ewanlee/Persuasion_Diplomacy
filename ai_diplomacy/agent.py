@@ -11,6 +11,8 @@ from .clients import BaseModelClient, load_model_client
 # Import load_prompt and the new logging wrapper from utils
 from .utils import load_prompt, run_llm_and_log, log_llm_response
 from .prompt_constructor import build_context_prompt # Added import
+from .clients import GameHistory
+from diplomacy import Game
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +73,12 @@ class DiplomacyAgent:
         else:
             self.relationships: Dict[str, str] = initial_relationships
         self.private_journal: List[str] = []
-        self.private_diary: List[str] = [] # New private diary
+        
+        # The permanent, unabridged record of all entries. This only ever grows.
+        self.full_private_diary: List[str] = []
+        
+        # The version used for LLM context. This gets rebuilt by consolidation.
+        self.private_diary: List[str] = []
 
         # --- Load and set the appropriate system prompt ---
         # Get the directory containing the current file (agent.py)
@@ -284,161 +291,208 @@ class DiplomacyAgent:
         logger.debug(f"[{self.power_name} Journal]: {entry}")
 
     def add_diary_entry(self, entry: str, phase: str):
-        """Adds a formatted entry string to the agent's private diary."""
+        """Adds a formatted entry to both the permanent and context diaries."""
         if not isinstance(entry, str):
             entry = str(entry) # Ensure it's a string
         formatted_entry = f"[{phase}] {entry}"
+        
+        # Add to the permanent, unabridged record
+        self.full_private_diary.append(formatted_entry)
+        # Also add to the context diary, which will be periodically rebuilt
         self.private_diary.append(formatted_entry)
-        # Keep diary to a manageable size, e.g., last 100 entries
-        #self.private_diary = self.private_diary[-100:] 
-        logger.info(f"[{self.power_name}] DIARY ENTRY ADDED for {phase}. Total entries: {len(self.private_diary)}. New entry: {entry[:100]}...")
 
-    def format_private_diary_for_prompt(self, max_entries=40) -> str:
-        """Formats the last N private diary entries for inclusion in a prompt."""
-        logger.info(f"[{self.power_name}] Formatting diary for prompt. Total entries: {len(self.private_diary)}")
+        logger.info(f"[{self.power_name}] DIARY ENTRY ADDED for {phase}. Total full entries: {len(self.full_private_diary)}. New entry: {entry[:100]}...")
+
+    def format_private_diary_for_prompt(self) -> str:
+        """
+        Formats the context diary for inclusion in a prompt.
+        It separates the single consolidated history entry from all recent full entries.
+        """
+        logger.info(f"[{self.power_name}] Formatting diary for prompt. Total context entries: {len(self.private_diary)}")
         if not self.private_diary:
             logger.warning(f"[{self.power_name}] No diary entries found when formatting for prompt")
             return "(No diary entries yet)"
-        # Get the most recent entries
-        recent_entries = self.private_diary[-max_entries:]
-        formatted_diary = "\n".join(recent_entries)
-        logger.info(f"[{self.power_name}] Formatted {len(recent_entries)} diary entries for prompt. Preview: {formatted_diary[:200]}...")
+
+        # The context diary (self.private_diary) is already structured correctly by the
+        # consolidation process. It contains at most one consolidated entry at the start,
+        # followed by ALL unconsolidated entries.
+
+        consolidated_entry = ""
+        # Find the single consolidated entry, which should be the first one if it exists.
+        if self.private_diary and self.private_diary[0].startswith("[CONSOLIDATED HISTORY]"):
+            consolidated_entry = self.private_diary[0]
+            # Get all other entries, which are the full, unconsolidated ones.
+            recent_entries = self.private_diary[1:]
+        else:
+            # No consolidated entry found, so all entries are "recent".
+            recent_entries = self.private_diary
+
+        # Combine them into a formatted string
+        formatted_diary = ""
+        if consolidated_entry:
+            # No need for a header, the entry itself is the header.
+            formatted_diary += consolidated_entry
+            formatted_diary += "\n\n"
+        
+        if recent_entries:
+            formatted_diary += "--- RECENT FULL DIARY ENTRIES ---\n"
+            # Use join on the full list of recent entries, not a slice.
+            formatted_diary += "\n\n".join(recent_entries)
+        
+        if not formatted_diary:
+            return "(No diary entries to show)"
+
+        logger.info(f"[{self.power_name}] Formatted diary with {1 if consolidated_entry else 0} consolidated and {len(recent_entries)} recent entries. Preview: {formatted_diary[:250]}...")
         return formatted_diary
     
-    async def consolidate_year_diary_entries(self, year: str, game: 'Game', log_file_path: str):
+    async def consolidate_entire_diary(
+        self,
+        game: "Game",
+        log_file_path: str,
+        entries_to_keep_unsummarized: int = 15,
+    ):
         """
-        Consolidates all diary entries from a specific year into a concise summary.
-        This is called when we're 2+ years past a given year to prevent context bloat.
-        
-        Args:
-            year: The year to consolidate (e.g., "1901")
-            game: The game object for context
-            log_file_path: Path for logging LLM responses
+        Consolidate older diary entries while keeping all entries from the
+        `cutoff_year` onward in full.
+
+        The cutoff year is taken from the N-th most-recent *full* entry
+        (N = entries_to_keep_unsummarized).  Every earlier full entry is
+        summarised; every entry from cutoff_year or later is left verbatim.
+
+        Existing “[CONSOLIDATED HISTORY] …” lines are ignored during both
+        selection and summarisation, so summaries are never nested.
         """
-        logger.info(f"[{self.power_name}] CONSOLIDATION CALLED for year {year}")
-        logger.info(f"[{self.power_name}] Current diary has {len(self.private_diary)} total entries")
-        
-        # Debug: Log first few diary entries to see their format
-        if self.private_diary:
-            logger.info(f"[{self.power_name}] Sample diary entries:")
-            for i, entry in enumerate(self.private_diary[:3]):
-                logger.info(f"[{self.power_name}]   Entry {i}: {entry[:100]}...")
-        
-        # Find all diary entries from the specified year
-        year_entries = []
-        # Update pattern to match phase format: [S1901M], [F1901M], [W1901A] etc.
-        # We need to check for [S1901, [F1901, [W1901
-        patterns_to_check = [f"[S{year}", f"[F{year}", f"[W{year}"]
-        logger.info(f"[{self.power_name}] Looking for entries matching patterns: {patterns_to_check}")
-        
-        for i, entry in enumerate(self.private_diary):
-            # Check if entry matches any of our patterns
-            for pattern in patterns_to_check:
-                if pattern in entry:
-                    year_entries.append(entry)
-                    logger.info(f"[{self.power_name}] Found matching entry {i} with pattern '{pattern}': {entry[:50]}...")
-                    break  # Don't add the same entry multiple times
-        
-        if not year_entries:
-            logger.info(f"[{self.power_name}] No diary entries found for year {year} using patterns: {patterns_to_check}")
+        logger.info(
+            f"[{self.power_name}] CONSOLIDATION START — "
+            f"{len(self.full_private_diary)} total full entries"
+        )
+
+        # ----- 1. Collect only the full (non-summary) entries -----
+        full_entries = [
+            e for e in self.full_private_diary
+            if not e.startswith("[CONSOLIDATED HISTORY]")
+        ]
+
+        if len(full_entries) <= entries_to_keep_unsummarized:
+            self.private_diary = list(self.full_private_diary)
+            logger.info(
+                f"[{self.power_name}] ≤ {entries_to_keep_unsummarized} full entries — "
+                "skipping consolidation"
+            )
             return
-        
-        logger.info(f"[{self.power_name}] Found {len(year_entries)} entries to consolidate for year {year}")
-        
-        # Load consolidation prompt template
-        prompt_template = _load_prompt_file('diary_consolidation_prompt.txt')
+
+        # ----- 2. Determine cutoff_year from the N-th most-recent full entry -----
+        boundary_entry = full_entries[-entries_to_keep_unsummarized]
+        match = re.search(r"\[[SFWRAB]\s*(\d{4})", boundary_entry)
+        if not match:
+            logger.error(
+                f"[{self.power_name}] Could not parse year from boundary entry; "
+                "aborting consolidation"
+            )
+            self.private_diary = list(self.full_private_diary)
+            return
+
+        cutoff_year = int(match.group(1))
+        logger.info(
+            f"[{self.power_name}] Cut-off year for consolidation: {cutoff_year}"
+        )
+
+        # Helper to extract the year (returns None if not found)
+        def _entry_year(entry: str) -> int | None:
+            m = re.search(r"\[[SFWRAB]\s*(\d{4})", entry)
+            return int(m.group(1)) if m else None
+
+        # ----- 3. Partition full entries by year -----
+        entries_to_summarize = [
+            e for e in full_entries
+            if (_entry_year(e) is not None and _entry_year(e) < cutoff_year)
+        ]
+        entries_to_keep = [
+            e for e in full_entries
+            if (_entry_year(e) is None or _entry_year(e) >= cutoff_year)
+        ]
+
+        logger.info(
+            f"[{self.power_name}] Summarising {len(entries_to_summarize)} entries; "
+            f"keeping {len(entries_to_keep)} recent entries verbatim"
+        )
+
+        if not entries_to_summarize:
+            # Safety fallback — should not occur but preserves context
+            self.private_diary = list(self.full_private_diary)
+            logger.warning(
+                f"[{self.power_name}] No eligible entries to summarise; "
+                "context diary left unchanged"
+            )
+            return
+
+        # ----- 4. Build the prompt -----
+        prompt_template = _load_prompt_file("diary_consolidation_prompt.txt")
         if not prompt_template:
-            logger.error(f"[{self.power_name}] Could not load diary_consolidation_prompt.txt")
+            logger.error(
+                f"[{self.power_name}] diary_consolidation_prompt.txt missing — aborting"
+            )
             return
-        
-        # Format entries for the prompt
-        year_diary_text = "\n\n".join(year_entries)
-        
-        # Create the consolidation prompt
+
         prompt = prompt_template.format(
             power_name=self.power_name,
-            year=year,
-            year_diary_entries=year_diary_text
+            full_diary_text="\n\n".join(entries_to_summarize),
         )
-        
+
+        # ----- 5. Call the LLM -----
         raw_response = ""
-        success_status = "FALSE"
-        
+        success_flag = "FALSE"
+        consolidation_client = None
         try:
-            # Use Gemini 2.5 Flash for consolidation if available
-            consolidation_client = load_model_client("openrouter-google/gemini-2.5-flash-preview")
-            if not consolidation_client:
-                consolidation_client = self.client  # Fallback to agent's own client
-                logger.warning(f"[{self.power_name}] Using agent's own model for consolidation instead of Gemini Flash")
-            
-            # Use the enhanced wrapper with retry logic
-            from .utils import run_llm_and_log
+            consolidation_client = self.client
+
             raw_response = await run_llm_and_log(
                 client=consolidation_client,
                 prompt=prompt,
                 log_file_path=log_file_path,
                 power_name=self.power_name,
                 phase=game.current_short_phase,
-                response_type='diary_consolidation',
+                response_type="diary_consolidation",
             )
-            
-            if raw_response and raw_response.strip():
-                consolidated_entry = raw_response.strip()
-                
-                # Separate entries into consolidated and regular entries
-                consolidated_entries = []
-                regular_entries = []
-                
-                for entry in self.private_diary:
-                    if entry.startswith("[CONSOLIDATED"):
-                        consolidated_entries.append(entry)
-                    else:
-                        # Check if this is an entry we should remove (from the year being consolidated)
-                        should_keep = True
-                        for pattern in patterns_to_check:
-                            if pattern in entry:
-                                should_keep = False
-                                break
-                        if should_keep:
-                            regular_entries.append(entry)
-                
-                # Create the new consolidated summary
-                consolidated_summary = f"[CONSOLIDATED {year}] {consolidated_entry}"
-                
-                # Sort consolidated entries by year (ascending) to keep historical order
-                consolidated_entries.append(consolidated_summary)
-                consolidated_entries.sort(key=lambda x: x[14:18], reverse=False)  # Extract year from "[CONSOLIDATED YYYY]"
-                
-                # Rebuild diary with consolidated entries at the top
-                self.private_diary = consolidated_entries + regular_entries
-                
-                success_status = "TRUE"
-                logger.info(f"[{self.power_name}] Successfully consolidated {len(year_entries)} entries from {year} into 1 summary")
-                logger.info(f"[{self.power_name}] New diary structure - Total entries: {len(self.private_diary)}, Consolidated: {len(consolidated_entries)}, Regular: {len(regular_entries)}")
-                logger.debug(f"[{self.power_name}] Diary order preview:")
-                for i, entry in enumerate(self.private_diary[:5]):
-                    logger.debug(f"[{self.power_name}]   Entry {i}: {entry[:50]}...")
-            else:
-                logger.warning(f"[{self.power_name}] Empty response from consolidation LLM")
-                success_status = "FALSE: Empty response"
-                
-        except Exception as e:
-            logger.error(f"[{self.power_name}] Error consolidating diary entries: {e}", exc_info=True)
-            success_status = f"FALSE: {type(e).__name__}"
-        finally:
-            if log_file_path:
-                log_llm_response(
-                    log_file_path=log_file_path,
-                    model_name=consolidation_client.model_name if 'consolidation_client' in locals() else self.client.model_name,
-                    power_name=self.power_name,
-                    phase=game.current_short_phase,
-                    response_type='diary_consolidation',
-                    raw_input_prompt=prompt,
-                    raw_response=raw_response,
-                    success=success_status
-                )
 
-    async def generate_negotiation_diary_entry(self, game: 'Game', game_history: 'GameHistory', log_file_path: str):
+            consolidated_text = raw_response.strip() if raw_response else ""
+            if not consolidated_text:
+                raise ValueError("LLM returned empty summary")
+
+            new_summary_entry = f"[CONSOLIDATED HISTORY] {consolidated_text}"
+
+            # ----- 6. Rebuild the context diary -----
+            self.private_diary = [new_summary_entry] + entries_to_keep
+            success_flag = "TRUE"
+            logger.info(
+                f"[{self.power_name}] Consolidation complete — "
+                f"{len(self.private_diary)} context entries now"
+            )
+
+        except Exception as exc:
+            logger.error(
+                f"[{self.power_name}] Diary consolidation failed: {exc}", exc_info=True
+            )
+        finally:
+            # Always log the exchange
+            log_llm_response(
+                log_file_path=log_file_path,
+                model_name=(
+                    consolidation_client.model_name
+                    if consolidation_client is not None
+                    else self.client.model_name
+                ),
+                power_name=self.power_name,
+                phase=game.current_short_phase,
+                response_type="diary_consolidation",
+                raw_input_prompt=prompt,
+                raw_response=raw_response,
+                success=success_flag,
+            )
+
+
+
+    async def generate_negotiation_diary_entry(self, game: 'Game', game_history: GameHistory, log_file_path: str):
         """
         Generates a diary entry summarizing negotiations and updates relationships.
         This method now includes comprehensive LLM interaction logging.
@@ -1123,7 +1177,7 @@ class DiplomacyAgent:
         #    summary += f"\n  Last Journal Entry: {self.private_journal[-1]}"
         return summary
 
-    def generate_plan(self, game: 'Game', board_state: dict, game_history: 'GameHistory') -> str:
+    def generate_plan(self, game: Game, board_state: dict, game_history: 'GameHistory') -> str:
         """Generates a strategic plan using the client and logs it."""
         logger.info(f"Agent {self.power_name} generating strategic plan...")
         try:
