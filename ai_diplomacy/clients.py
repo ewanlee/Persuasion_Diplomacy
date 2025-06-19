@@ -1098,7 +1098,7 @@ class OpenRouterClient(BaseModelClient):
                     {"role": "system", "content": system_prompt_content},
                     {"role": "user", "content": prompt_with_cta}
                 ],
-                max_tokens=4000,
+                max_tokens=16000, # set high to accommodate reasoning models
                 temperature=temperature,
             )
             
