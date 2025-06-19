@@ -12,11 +12,6 @@ const RelationshipStatusSchema = z.enum([
   "Ally"
 ]);
 
-const GameState = z.record(ProvinceENUMSchema, z.object({
-  power: PowerENUMSchema,
-  //unit: z.object({}).optional()
-}))
-
 const MessageSchema = z.object({
   sender: PowerENUMSchema,
   recipient: PowerENUMSchema,
@@ -73,3 +68,4 @@ export const GameSchema = z.object({
 
 export type GamePhase = z.infer<typeof PhaseSchema>;
 export type GameSchemaType = z.infer<typeof GameSchema>;
+export type Message = z.infer<typeof MessageSchema>

@@ -2,95 +2,79 @@ import * as THREE from "three";
 import "./style.css"
 import { initMap } from "./map/create";
 import { gameState } from "./gameState";
-import { logger } from "./logger";
 import { loadBtn, prevBtn, nextBtn, speedSelector, fileInput, playBtn, mapView, loadGameBtnFunction } from "./domElements";
-import { updateChatWindows } from "./domElements/chatWindows";
-import { initStandingsBoard, hideStandingsBoard, showStandingsBoard } from "./domElements/standingsBoard";
-import { displayPhaseWithAnimation, advanceToNextPhase, resetToPhase, nextPhase, previousPhase, togglePlayback } from "./phase";
 import { config } from "./config";
 import { Tween, Group, Easing } from "@tweenjs/tween.js";
-import { initRotatingDisplay, updateRotatingDisplay } from "./components/rotatingDisplay";
-import { closeTwoPowerConversation, showTwoPowerConversation } from "./components/twoPowerConversation";
-import { PowerENUM } from "./types/map";
+import { initRotatingDisplay, } from "./components/rotatingDisplay";
 import { debugMenuInstance } from "./debug/debugMenu";
-import { sineWave } from "./utils/timing";
 import { initializeBackgroundAudio, startBackgroundAudio } from "./backgroundAudio";
+import { updateLeaderboard } from "./components/leaderboard";
+import { _setPhase, nextPhase, previousPhase } from "./phase";
+import { togglePlayback } from "./phase";
 
 //TODO: Create a function that finds a suitable unit location within a given polygon, for placing units better 
 //  Currently the location for label, unit, and SC are all the same manually picked location
 
-const isStreamingMode = import.meta.env.VITE_STREAMING_MODE === 'True' || import.meta.env.VITE_STREAMING_MODE === 'true'
+const isStreamingMode = import.meta.env.VITE_STREAMING_MODE
+const phaseStartIdx = undefined;
+
+// Panic flag to stop execution when critical errors occur
+let hasPanicked = false;
 
 // --- INITIALIZE SCENE ---
 function initScene() {
   gameState.createThreeScene()
-  
-  // Initialize background audio for streaming mode
-  initializeBackgroundAudio();
-  
-  // Enable audio on first user interaction (to comply with browser autoplay policies)
-  let audioEnabled = false;
-  const enableAudio = () => {
-    if (!audioEnabled) {
-      console.log('User interaction detected, audio enabled');
-      audioEnabled = true;
-      // Create and play a silent audio to unlock audio context
-      const silentAudio = new Audio();
-      silentAudio.volume = 0;
-      silentAudio.play().catch(() => {});
-      
-      // Start background audio in streaming mode
-      if (isStreamingMode) {
-        startBackgroundAudio();
-      }
-      
-      // Remove the listener after first interaction
-      document.removeEventListener('click', enableAudio);
-      document.removeEventListener('keydown', enableAudio);
-    }
-  };
-  
-  document.addEventListener('click', enableAudio);
-  document.addEventListener('keydown', enableAudio);
+
+  initializeBackgroundAudio()
 
 
   // Initialize standings board
-  initStandingsBoard();
+  // TODO: Re-add standinds board when it has an actual use, and not stale data
+  //
+  //initStandingsBoard();
+
 
   // Load coordinate data, then build the map
   gameState.loadBoardState().then(() => {
     initMap(gameState.scene).then(() => {
-      // Update info panel with initial power information
-      logger.updateInfoPanel();
 
       // Initialize rotating display
-      initRotatingDisplay('leaderboard');
-
-      // Only show standings board at startup if no game is loaded
-      if (!gameState.gameData || !gameState.gameData.phases || gameState.gameData.phases.length === 0) {
-        showStandingsBoard();
-      }
+      initRotatingDisplay();
 
       gameState.cameraPanAnim = createCameraPan()
 
-      // Load default game file if in debug mode
-      if (config.isDebugMode || isStreamingMode) {
-        gameState.loadGameFile(0);
+      gameState.loadGameFile().then(() => {
 
-        // Initialize info panel
-        logger.updateInfoPanel();
-      }
+        // Update info panel with initial power information
+        updateLeaderboard();
+
+        if (phaseStartIdx !== undefined) {
+          gameState.eventQueue.start();
+          gameState.eventQueue.scheduleDelay(500, () => {
+            _setPhase(phaseStartIdx)
+          }, `phase-start-delay-${Date.now()}`)
+        } else if (!isStreamingMode && !config.isTestingMode) {
+          // Auto-start playback for normal mode (not streaming, no specific phase, not testing)
+          // Note: Background audio will start when togglePlayback is called (which provides user interaction context)
+          gameState.eventQueue.start();
+          gameState.eventQueue.scheduleDelay(1000, () => {
+            console.log("Auto-starting playback after game load");
+            togglePlayback(true); // true = explicitly set to playing
+          }, `auto-start-playback-${Date.now()}`);
+        }
+      })
+
 
       // Initialize debug menu if in debug mode
       if (config.isDebugMode) {
         debugMenuInstance.show();
       }
       if (isStreamingMode) {
-        setTimeout(() => {
-          togglePlayback();
-          // Try to start background audio when auto-starting
-          startBackgroundAudio();
-        }, 10000) // Increased delay to 10 seconds for Chrome to fully load in Docker
+        startBackgroundAudio()
+        gameState.eventQueue.start();
+        gameState.eventQueue.scheduleDelay(2000, () => {
+          togglePlayback()
+        }, `streaming-mode-start-${Date.now()}`)
       }
     })
   }).catch(err => {
@@ -102,8 +86,7 @@ function initScene() {
   window.addEventListener('resize', onWindowResize);
 
   // Kick off animation loop
-  requestAnimationFrame(animate);
-
+  animate();
 }
 
 function createCameraPan(): Group {
@@ -140,94 +123,68 @@ function createCameraPan(): Group {
   return new Group(moveToStartSweepAnim, cameraSweepOperation);
 }
 
+function updateAnimations() {
+
+  // Check if all animations are complete
+  if (gameState.unitAnimations.length > 0) {
+    // Filter out completed animations
+    gameState.unitAnimations = gameState.unitAnimations.filter(anim => anim.isPlaying());
+    // Call update on each active animation
+    gameState.unitAnimations.forEach((anim) => anim.update())
+  }
+
+  // Update any pulsing or wave animations on supply centers or units
+  if (gameState.scene.userData.animatedObjects) {
+    gameState.scene.userData.animatedObjects.forEach(obj => {
+      if (obj.userData.pulseAnimation) {
+        const anim = obj.userData.pulseAnimation;
+        anim.time += anim.speed;
+        if (obj.userData.glowMesh) {
+          const pulseValue = Math.sin(anim.time) * anim.intensity + 0.5;
+          obj.userData.glowMesh.material.opacity = 0.2 + (pulseValue * 0.3);
+          obj.userData.glowMesh.scale.set(
+            1 + (pulseValue * 0.1),
+            1 + (pulseValue * 0.1),
+            1 + (pulseValue * 0.1)
+          );
+        }
+        // Subtle bobbing up/down
+        obj.position.y = 2 + Math.sin(anim.time) * 0.5;
+      }
+    });
+  }
+}
 // --- ANIMATION LOOP ---
 /*
  * Main animation loop that runs continuously
  * Handles camera movement, animations, and game state transitions
  */
-let lastTime = 0;
-function animate(currentTime: number = 0) {
-  // Calculate delta time in seconds
-  let deltaTime = lastTime ? (currentTime - lastTime) / 1000 : 0;
-  lastTime = currentTime;
+function animate() {
+  if (hasPanicked) return; // Stop the loop if we've panicked
   
-  // Clamp delta time to prevent animation jumps when tab loses focus
-  deltaTime = Math.min(deltaTime, config.animation.maxDeltaTime);
+  try {
+    // All things that aren't ThreeJS items happen in the eventQueue. The queue if filled with the first phase before the animate is kicked off, then all subsequent events are updated when other events finish. F
+    // For instance, when the messages finish playing, they should kick off the check to see if we should advance turns.
+    gameState.eventQueue.update();
+  } catch (error) {
+    console.error('CRITICAL ERROR - STOPPING EXECUTION:', error);
+    hasPanicked = true;
+    return; // Exit without scheduling next frame
+  }
   
-  // Update global timing in gameState
-  gameState.deltaTime = deltaTime;
-  gameState.globalTime = currentTime / 1000; // Store in seconds
-
   requestAnimationFrame(animate);
+
   if (gameState.isPlaying) {
-    // Update the camera angle with delta time
-    // Pass currentTime to update() to fix the Tween.js bug properly
-    gameState.cameraPanAnim.update(currentTime);
-
-  } else {
-    // Manual camera controls when not in playback mode
-    gameState.camControls.update();
-  }
-
-  // Check if all animations are complete
-  if (gameState.unitAnimations.length > 0) {
-    // Filter out completed animations
-    const previousCount = gameState.unitAnimations.length;
-    gameState.unitAnimations = gameState.unitAnimations.filter(anim => anim.isPlaying());
-
-    // Log when animations complete
-    if (previousCount > 0 && gameState.unitAnimations.length === 0) {
-      console.log("All unit animations have completed");
-    }
-
-    // Call update on each active animation with current time
-    gameState.unitAnimations.forEach((anim) => anim.update(currentTime))
+    // Update the camera angle
+    // FIXME: This has to call the update functino twice inorder to avoid a bug in Tween.js, see here  https://github.com/tweenjs/tween.js/issues/677
+    gameState.cameraPanAnim.update();
+    gameState.cameraPanAnim.update();
 
   }
 
-  // If all animations are complete and we're in playback mode
-  if (gameState.unitAnimations.length === 0 && gameState.isPlaying && !gameState.messagesPlaying && !gameState.isSpeaking && !gameState.nextPhaseScheduled) {
-    // Schedule next phase after a pause delay
-    console.log(`Scheduling next phase in ${config.effectivePlaybackSpeed}ms`);
-    gameState.nextPhaseScheduled = true;
-    gameState.playbackTimer = setTimeout(() => {
-      try {
-        advanceToNextPhase()
-      } catch {
-        // FIXME: This is a dumb patch for us not being able to find the unit we expect to find.
-        //    We should instead bee figuring out why units aren't where we expect them to be when the engine has said that is a valid move
-        nextPhase()
-        gameState.nextPhaseScheduled;
-      }
-    }, config.effectivePlaybackSpeed);
-  }
-  // Update any pulsing or wave animations on supply centers or units
-  // In streaming mode, reduce animation frequency
-  const isStreamingMode = import.meta.env.VITE_STREAMING_MODE === 'True' || import.meta.env.VITE_STREAMING_MODE === 'true';
-  const frameSkip = isStreamingMode ? 2 : 1; // Skip every other frame in streaming
-  
-  if (gameState.scene.userData.animatedObjects && (Math.floor(currentTime / 16.67) % frameSkip === 0)) {
-    gameState.scene.userData.animatedObjects.forEach(obj => {
-      if (obj.userData.pulseAnimation) {
-        const anim = obj.userData.pulseAnimation;
-        // Use delta time for consistent animation speed regardless of frame rate
-        anim.time += anim.speed * deltaTime * frameSkip; // Compensate for skipped frames
-        if (obj.userData.glowMesh) {
-          const pulseValue = sineWave(config.animation.supplyPulseFrequency, anim.time, anim.intensity, 0.5);
-          obj.userData.glowMesh.material.opacity = 0.2 + (pulseValue * 0.3);
-          const scale = 1 + (pulseValue * 0.1);
-          obj.userData.glowMesh.scale.set(scale, scale, scale);
-        }
-        // Subtle bobbing up/down - reduce in streaming mode
-        const bobAmount = isStreamingMode ? 0.25 : 0.5;
-        obj.position.y = 2 + sineWave(config.animation.supplyPulseFrequency, anim.time, bobAmount);
-      }
-    });
-  }
-
+  updateAnimations()
   gameState.camControls.update();
   gameState.renderer.render(gameState.scene, gameState.camera);
-
 }
 
 
@@ -250,12 +207,6 @@ fileInput.addEventListener('change', e => {
   const file = e.target.files[0];
   if (file) {
     loadGameBtnFunction(file);
-    // Explicitly hide standings board after loading game
-    hideStandingsBoard();
-    // Update rotating display and relationship popup with game data
-    if (gameState.gameData) {
-      updateRotatingDisplay(gameState.gameData, gameState.phaseIndex, gameState.currentPower);
-    }
   }
 });
 
@@ -267,14 +218,27 @@ nextBtn.addEventListener('click', () => {
   nextPhase()
 });
 
-playBtn.addEventListener('click', togglePlayback);
+playBtn.addEventListener('click', () => {
+  // Ensure background audio is ready when user manually clicks play
+  startBackgroundAudio();
+  togglePlayback();
+});
 
 speedSelector.addEventListener('change', e => {
   config.playbackSpeed = parseInt(e.target.value);
-  // If we're currently playing, restart the timer with the new speed
-  if (gameState.isPlaying && gameState.playbackTimer) {
-    clearTimeout(gameState.playbackTimer);
-    gameState.playbackTimer = setTimeout(() => advanceToNextPhase(), config.effectivePlaybackSpeed);
+  // If we're currently playing, restart the event queue with the new speed
+  if (gameState.isPlaying) {
+    // Reset and restart event queue to pick up new speed
+    gameState.eventQueue.reset();
+    gameState.eventQueue.start();
+    gameState.nextPhaseScheduled = true;
+    gameState.eventQueue.scheduleDelay(config.effectivePlaybackSpeed, () => {
+      try {
+        advanceToNextPhase()
+      } catch {
+        nextPhase()
+      }
+    }, `speed-change-next-phase-${Date.now()}`);
   }
 });
 

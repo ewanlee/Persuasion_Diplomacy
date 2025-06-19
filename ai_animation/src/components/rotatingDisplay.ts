@@ -30,7 +30,7 @@ const RELATIONSHIP_VALUES = {
 };
 
 // Module state
-let currentDisplayType: DisplayType = DisplayType.RELATIONSHIP_HISTORY_CHART;
+let currentDisplayType: DisplayType = DisplayType.SC_HISTORY_CHART;
 let lastRenderedDisplayType: DisplayType | null = null;
 let rotationTimer: number | null = null;
 let containerElement: HTMLElement | null = null;
@@ -40,7 +40,7 @@ let isInitialized = false;
  * Initialize the rotating display
  * @param containerId The ID of the container element
  */
-export function initRotatingDisplay(containerId: string): void {
+export function initRotatingDisplay(containerId: string = 'rotating-display'): void {
   containerElement = document.getElementById(containerId);
 
   if (!containerElement) {
@@ -122,10 +122,10 @@ export function updateRotatingDisplay(
 
     // Apply fade transition
     containerElement.style.transition = 'opacity 0.3s ease-out';
-    containerElement.style.opacity = '0';
+    //containerElement.style.opacity = '0';
 
     // Update content after fade-out
-    setTimeout(() => {
+    gameState.eventQueue.scheduleDelay(300, () => {
       // Render the appropriate view based on current display type
       switch (currentDisplayType) {
         case DisplayType.SC_HISTORY_CHART:
@@ -141,7 +141,7 @@ export function updateRotatingDisplay(
 
       // Update last rendered type
       lastRenderedDisplayType = currentDisplayType;
-    }, 300);
+    }, `rotating-display-update-${Date.now()}`);
   }
 }
 
@@ -153,9 +153,11 @@ export function updateRotatingDisplay(
  */
 function renderSCHistoryChartView(
   container: HTMLElement,
-  gameData: GameSchemaType,
-  currentPhaseIndex: number
+  gameData: GameSchemaType
 ): void {
+
+  // TODO: This likely needs to not be a custom rendered svg. There are plenty of charting libraries to use to do this instead.
+  //
   // Create header
   const header = document.createElement('div');
   header.innerHTML = `<strong>Supply Center History</strong>`;
@@ -165,8 +167,8 @@ function renderSCHistoryChartView(
   const scHistory = [];
   const allPowers = new Set<string>();
 
-  // Iterate through phases up to and including currentPhaseIndex
-  for (let i = 0; i <= currentPhaseIndex; i++) {
+  // Iterate through phases up to and including gameState.phaseIndex
+  for (let i = 0; i <= gameState.phaseIndex; i++) {
     const phase = gameData.phases[i];
     const phaseData: any = {
       phaseName: phase.name,
@@ -273,6 +275,7 @@ function renderSCHistoryChartView(
     tickLabel.textContent = tick.toString();
     chart.appendChild(tickLabel);
   }
+  let paths = []
 
   // Draw lines for each power
   for (const power of powers) {
@@ -297,11 +300,11 @@ function renderSCHistoryChartView(
     path.setAttribute("stroke", POWER_COLORS[power] || "#000000");
     path.setAttribute("stroke-width", "2");
     path.setAttribute("fill", "none");
-    chart.appendChild(path);
+    paths.push(path);
   }
 
   // Add a vertical line to indicate current phase
-  const currentPhaseX = xScale(currentPhaseIndex);
+  const currentPhaseX = xScale(gameState.phaseIndex);
   const currentPhaseLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
   currentPhaseLine.setAttribute("x1", `${currentPhaseX}`);
   currentPhaseLine.setAttribute("y1", `${margin.top}`);
@@ -340,18 +343,15 @@ function renderSCHistoryChartView(
 
     legendX += legendItemWidth;
   }
-
+  paths.forEach((path) => {
+    svg.appendChild(path)
+  })
   chart.appendChild(legendGroup);
+  svg.appendChild(chart)
 
   // Add the SVG to the container
   container.appendChild(svg);
 
-  // Add phase info
-  const phaseInfo = document.createElement('div');
-  phaseInfo.style.fontSize = '12px';
-  phaseInfo.style.marginTop = '5px';
-  phaseInfo.innerHTML = `Current phase: ${gameData.phases[currentPhaseIndex].name}`;
-  container.appendChild(phaseInfo);
 }
 
 /**

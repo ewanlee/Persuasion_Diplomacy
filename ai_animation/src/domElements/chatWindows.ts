@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { gameState } from "../gameState";
 import { config } from "../config";
-import { advanceToNextPhase } from "../phase";
-import { getPowerDisplayName, getAllPowerDisplayNames } from '../utils/powerNames';
+import { GamePhase, Message } from "../types/gameState";
+import { getPowerDisplayName } from '../utils/powerNames';
 import { PowerENUM } from '../types/map';
 
 
@@ -13,7 +13,16 @@ let faceIconCache = {}; // Cache for generated face icons
 
 // Add a message counter to track sound effect frequency
 let messageCounter = 0;
-let chatWindows = {}; // Store chat window elements by power
+type chatWindowMap = { [key in PowerENUM]: {
+  element: HTMLHtmlElement,
+  messagesContainer: HTMLHtmlElement,
+  isGlobal: boolean,
+  seenMessages: Set<Message>
+} }
+
+
+let chatWindows: chatWindowMap
+
 // --- CHAT WINDOW FUNCTIONS ---
 export function createChatWindows() {
   // Clear existing chat windows
@@ -136,22 +145,34 @@ function createChatWindow(power, isGlobal = false) {
   };
 }
 
+function fiterAndSortChatMessagesForPhase(phase: GamePhase): Message[] {
+
+  let relevantMessages = phase.messages.filter(msg => {
+    return (
+      msg.sender === gameState.currentPower ||
+      msg.recipient === gameState.currentPower ||
+      msg.recipient === 'GLOBAL'
+    );
+  });
+  relevantMessages.sort((a, b) => a.time_sent - b.time_sent);
+  return relevantMessages
+}
+
 // Modified to accumulate messages instead of resetting and only animate for new messages
 /**
  * Updates chat windows with messages for the current phase
  * @param phase The current game phase containing messages
  * @param stepMessages Whether to animate messages one-by-word (true) or show all at once (false)
  */
-export function updateChatWindows(phase: any, stepMessages = false) {
+export function updateChatWindows(stepMessages = false, callback?: () => void) {
   // Exit early if no messages
-  if (!phase.messages || !phase.messages.length) {
+  if (!gameState.currentPhase.messages || !gameState.currentPhase.messages.length) {
     console.log("No messages to display for this phase");
-    gameState.messagesPlaying = false;
     return;
   }
 
   // Only show messages relevant to the current player (sent by them, to them, or global)
-  const relevantMessages = phase.messages.filter(msg => {
+  const relevantMessages = gameState.currentPhase.messages.filter(msg => {
     return (
       msg.sender === gameState.currentPower ||
       msg.recipient === gameState.currentPower ||
@@ -164,99 +185,61 @@ export function updateChatWindows(phase: any, stepMessages = false) {
 
   // Log message count but only in debug mode to reduce noise
   if (config.isDebugMode) {
-    console.log(`Found ${relevantMessages.length} messages for player ${gameState.currentPower} in phase ${phase.name}`);
+    console.log(`Found ${relevantMessages.length} messages for player ${gameState.currentPower} in phase ${gameState.currentPhase.name}`);
   }
 
-  if (!stepMessages || config.isInstantMode) {
-    // Normal mode or instant chat mode: show all messages at once
-    relevantMessages.forEach(msg => {
-      const isNew = addMessageToChat(msg, phase.name);
-      if (isNew) {
-        // Increment message counter and play sound on every third message
-        messageCounter++;
-        animateHeadNod(msg, (messageCounter % config.soundEffectFrequency === 0));
-      }
-    });
-    gameState.messagesPlaying = false;
-  } else {
-    // Stepwise mode: show one message at a time, animating word-by-word
-    gameState.messagesPlaying = true;
-    let index = 0;
+  // Stepwise mode: show one message at a time, animating word-by-word
+  let index = 0;
 
-    // Store the start time for debugging
-    const messageStartTime = Date.now();
+  // Store the start time for debugging
+  const messageStartTime = Date.now();
 
-    // Function to process the next message
-    const showNext = () => {
-      // If we're not playing or user has manually advanced, stop message animation
-      if (!gameState.isPlaying && !config.isDebugMode) {
-        console.log("Playback stopped, halting message animations");
-        gameState.messagesPlaying = false;
-        return;
-      }
+  // Function to process the next message
+  const showNext = () => {
+    // If we're not playing or user has manually advanced, stop message animation
+    if (!gameState.isPlaying && !config.isDebugMode) {
+      console.log("Playback stopped, halting message animations");
+      return;
+    }
 
-      // All messages have been displayed
-      if (index >= relevantMessages.length) {
-        if (config.isDebugMode) {
-          console.log(`All messages displayed in ${Date.now() - messageStartTime}ms`);
-        }
-        gameState.messagesPlaying = false;
-        
-        // Trigger unit animations now that messages are done
-        // This imports a circular dependency, so we use a dynamic import
-        import('../units/animate').then(({ createAnimationsForNextPhase }) => {
-          const phaseIndex = gameState.phaseIndex;
-          const isFirstPhase = phaseIndex === 0;
-          const previousPhase = !isFirstPhase && phaseIndex > 0 ? gameState.gameData.phases[phaseIndex - 1] : null;
-          
-          if (!isFirstPhase && previousPhase) {
-            console.log("Messages complete, starting unit animations");
-            createAnimationsForNextPhase();
-          }
-        });
-        
-        return;
-      }
-
-      // Get the next message
-      const msg = relevantMessages[index];
-
-      // Only log in debug mode to reduce console noise
+    // All messages have been displayed
+    if (index >= relevantMessages.length) {
       if (config.isDebugMode) {
-        console.log(`Displaying message ${index + 1}/${relevantMessages.length}: ${msg.sender} to ${msg.recipient}`);
+        console.log(`All messages displayed in ${Date.now() - messageStartTime}ms`);
       }
+      console.log("Messages complete, triggering next phase");
+      if (callback) callback();
+      return;
+    }
 
-      // Function to call after message animation completes
-      const onMessageComplete = () => {
-        index++; // Only increment after animation completes
+    // Get the next message
+    const msg = relevantMessages[index];
 
-        // Schedule next message with proper delay
-        // In streaming mode, add extra delay to prevent message overlap
-        const isStreamingMode = import.meta.env.VITE_STREAMING_MODE === 'True' || import.meta.env.VITE_STREAMING_MODE === 'true';
-        const messageDelay = isStreamingMode ? config.effectivePlaybackSpeed : config.effectivePlaybackSpeed / 2;
-        setTimeout(showNext, messageDelay);
-      };
+    // Only log in debug mode to reduce console noise
+    if (config.isDebugMode) {
+      console.log(`Displaying message ${index + 1}/${relevantMessages.length}: ${msg.sender} to ${msg.recipient}`);
+    }
 
-      // Add the message with word animation
-      const isNew = addMessageToChat(msg, phase.name, true, onMessageComplete);
-
-      // Handle non-new messages
-      if (!isNew) {
-        onMessageComplete(); // Skip animation for already seen messages
-      } else {
-        // Animate head and play sound for new messages (not just when not in debug mode)
-        messageCounter++;
-        animateHeadNod(msg, (messageCounter % config.soundEffectFrequency === 0));
-      }
+    // Function to call after message animation completes
+    const onMessageComplete = () => {
+      index++; // Only increment after animation completes
+      showNext()
     };
 
-    // Start the message sequence with initial delay
-    setTimeout(showNext, 50);
-  }
+    // Add the message with word animation
+    addMessageToChat(msg, true, onMessageComplete);
+
+    // Animate head and play sound for new messages (not just when not in debug mode)
+    messageCounter++;
+    animateHeadNod(msg, (messageCounter % config.soundEffectFrequency === 0));
+  };
+
+  // Start the message sequence with initial delay
+  gameState.eventQueue.scheduleDelay(50, showNext, `start-message-sequence-${Date.now()}`);
 }
 
 // Modified to support word-by-word animation and callback
-function addMessageToChat(msg, phaseName, animateWords = false, onComplete = null) {
+function addMessageToChat(msg: Message, animateWords: boolean = false, onComplete: Function | null = null) {
   // Determine which chat window to use
   let targetPower;
   if (msg.recipient === 'GLOBAL') {
@@ -301,7 +284,7 @@ function addMessageToChat(msg, phaseName, animateWords = false, onComplete = nul
     // Add timestamp
     const timeDiv = document.createElement('div');
     timeDiv.className = 'message-time';
-    timeDiv.textContent = phaseName;
+    timeDiv.textContent = gameState.currentPhase.name;
     messageElement.appendChild(timeDiv);
   } else {
     // Private chat - outgoing or incoming style
@@ -316,7 +299,7 @@ function addMessageToChat(msg, phaseName, animateWords = false, onComplete = nul
     // Add timestamp
     const timeDiv = document.createElement('div');
     timeDiv.className = 'message-time';
-    timeDiv.textContent = phaseName;
+    timeDiv.textContent = gameState.currentPhase.name;
     messageElement.appendChild(timeDiv);
   }
 
@@ -376,11 +359,11 @@ function animateMessageWords(message: string, contentSpanId: string, targetPower
       console.log(`Finished animating message with ${words.length} words in ${targetPower} chat`);
 
       // Add a slight delay after the last word for readability
-      setTimeout(() => {
+      gameState.eventQueue.scheduleDelay(config.messageCompletionDelay, () => {
         if (onComplete) {
           onComplete(); // Call the completion callback
         }
-      }, Math.min(config.effectivePlaybackSpeed / 3, 150));
+      }, `message-complete-${Date.now()}`);
 
       return;
     }
@@ -397,15 +380,13 @@ function animateMessageWords(message: string, contentSpanId: string, targetPower
     // Calculate delay based on word length and playback speed
     // Longer words get slightly longer display time
     const wordLength = words[wordIndex - 1].length;
-    // In streaming mode, use a more consistent delay to prevent overlap
-    const isStreamingMode = import.meta.env.VITE_STREAMING_MODE === 'True' || import.meta.env.VITE_STREAMING_MODE === 'true';
-    const baseDelay = isStreamingMode ? 150 : config.effectivePlaybackSpeed / 10;
-    const delay = Math.max(50, Math.min(200, baseDelay * (wordLength / 4)));
-    setTimeout(addNextWord, delay);
+    // Use consistent word delay from config
+    const delay = Math.max(config.messageWordDelay, Math.min(200, config.messageWordDelay * (wordLength / 4)));
+    gameState.eventQueue.scheduleDelay(delay, addNextWord, `add-word-${wordIndex}-${Date.now()}`);
 
     // Scroll to ensure newest content is visible
     // Use requestAnimationFrame to batch DOM updates in streaming mode
-    const isStreamingModeForScroll = import.meta.env.VITE_STREAMING_MODE === 'True' || import.meta.env.VITE_STREAMING_MODE === 'true';
+    const isStreamingModeForScroll = import.meta.env.MODE === 'production' || import.meta.env.VITE_STREAMING_MODE === 'true';
     if (isStreamingModeForScroll) {
       requestAnimationFrame(() => {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -672,17 +653,17 @@ function playRandomSoundEffect() {
   // Create an <audio> and play
   const audio = new Audio(`./sounds/${chosen}`);
   audio.volume = 0.5; // Set volume to 50% to avoid being too loud
-  
-  if (config.isDebugMode || config.isTestingMode) { 
-    console.debug("Not playing sounds in debug or testing mode"); 
+
+  if (config.isDebugMode || config.isTestingMode) {
+    console.debug("Not playing sounds in debug or testing mode");
     return;
   }
-  
+
   console.log(`Attempting to play sound: ${chosen}`);
-  
+
   // Try to play the audio
   const playPromise = audio.play();
-  
+
   if (playPromise !== undefined) {
     playPromise
       .then(() => {
@@ -712,12 +693,12 @@ export function addToNewsBanner(newText: string): void {
     console.log(`Adding to news banner: "${newText}"`);
   }
 
-  // Add a fade-out transition (instant in instant mode)
-  const transitionDuration = config.isInstantMode ? 0 : 0.3;
+  // Add a fade-out transition
+  const transitionDuration = config.uiTransitionDuration;
   bannerEl.style.transition = `opacity ${transitionDuration}s ease-out`;
   bannerEl.style.opacity = '0';
 
-  setTimeout(() => {
+  gameState.eventQueue.scheduleDelay(config.uiFadeDelay, () => {
     // If the banner only has the default text or is empty, replace it
     if (
       bannerEl.textContent?.trim() === 'Diplomatic actions unfolding...' ||
@@ -731,5 +712,5 @@ export function addToNewsBanner(newText: string): void {
 
     // Fade back in
     bannerEl.style.opacity = '1';
-  }, config.isInstantMode ? 0 : 300);
+  }, `banner-fade-in-${Date.now()}`);
 }

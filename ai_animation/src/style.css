@@ -99,15 +99,14 @@
   }
   
   /* -----------------
-     Info Panel 
+     Leaderboard
      (lower-right)
      ----------------- */
-  #info-panel {
+  #leaderboard {
     position: absolute;
     bottom: 20px;
     right: 10px;
-    width: 350px;
-    max-height: 180px;
+    width: auto;
     
     /* Parchment style background */
     background: radial-gradient(ellipse at center, #f7ecd1 0%, #dbc08c 100%);
@@ -115,7 +114,7 @@
     border-radius: 8px;
     padding: 10px;
     font-family: monospace;
-    font-size: 12px;
+    font-size: 1rem;
     overflow-y: auto;
     
     pointer-events: none; /* Let clicks pass through */
@@ -124,12 +123,18 @@
     color: #2f260b;
     margin-bottom: 13px; /* Add bottom margin to raise info panel above banner */
   }
+
+  #leaderboard h4 {
+    font-size: 1.3rem;
+    font-style: bold;
+    margin:0 0 0.5rem 0;
+  }
   
   /* -----------------
-     Leaderboard 
+     rotating-display 
      (lower-left)
      ----------------- */
-  #leaderboard {
+  #rotating-display {
     position: absolute;
     bottom: 20px;
     left: 10px;
@@ -150,12 +155,6 @@
     color: #3b2c02;
   }
   
-  /* Make the power names stand out */
-  #leaderboard .power-name {
-    font-weight: bold;
-    font-variant: small-caps;
-    letter-spacing: 1px;
-  }
   
   /* --------------
      Chat Container
@@ -163,19 +162,23 @@
   #chat-container {
     position: absolute;
     top: 60px;
-    left: 10px;
-    right: 10px;
+    left: 0.1rem;
+    right: 0.1rem;
+    height: 20rem;
     pointer-events: none;
     z-index: 100;
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;
-    justify-content: space-between;
     padding-bottom: 5px;
+    justify-content: space-between
   }
   
   /* Each chat window: make it look like a scroll/paper note */
   .chat-window {
+    flex-shrink: 0;
+    width: 23rem;
+    min-width: 23rem;
     pointer-events: auto;
     background: radial-gradient(ellipse at center, #faf0d8 0%, #e2cfa1 100%);
     border: 3px solid #694c21;
@@ -184,21 +187,19 @@
     overflow: hidden;
     transition: all 0.3s ease;
     
-    /* Wider but less tall than previous suggestion */
-    width: 290px;
-    min-width: 290px;
     height: 250px; /* Reduced height significantly */
     display: flex;
     flex-direction: column;
-    flex-shrink: 0;
     font-family: "Book Antiqua", Palatino, serif;
     margin-bottom: 5px;
+    margin-right: 0.25rem;
+    margin-left: 0.25rem;
+
   }
   
   .chat-header {
     background: linear-gradient(90deg, #5e4f38 0%, #3b2d1b 100%);
     color: #ffe;
-    padding: 8px 12px;
     font-weight: bold;
     display: flex;
     justify-content: space-between;
@@ -209,28 +210,24 @@
   }
   
   .chat-messages {
-    padding: 10px;
+    padding: 0.5rem;
     overflow-y: auto;
-    flex-grow: 1;
     height: calc(100% - 36px);
-    font-size: 13px;
+    font-size: 0.9rem;
     color: #2f260b;
-  }
-  
-  /* Chat message bubbles */
+  } 
   .chat-message {
-    margin-bottom: 8px;
-    padding: 6px 10px;
+    margin-bottom: 0.4rem;
+    padding: 0.2rem 0.4rem;
     border-radius: 8px;
     word-break: break-word;
-    width: 85%;
+    width: 95%;
   }
   
   /* Grayish bubble for incoming messages */
   .message-incoming {
     background-color: #efe9d3;
     align-self: flex-start;
-    margin-right: auto;
   }
   
   /* Bluish bubble for outgoing messages */
@@ -238,7 +235,6 @@
     background: linear-gradient(90deg, #316685 0%, #3886a2 100%);
     color: #fff;
     align-self: flex-end;
-    margin-left: auto;
   }
   
   .message-time {
@@ -252,48 +248,46 @@
   .chat-collapsed {
     max-height: 36px;
   }
+
+  #leaderboard li span {
+    text-shadow: 0px 0px 2px rgba(0, 0, 0, 0.7);
+    text-shadow:
+    -0.7px -0.7px 0 black,
+     0.7px -0.7px 0 black,
+    -0.7px  0.7px 0 black,
+     0.7px  0.7px 0 black;
+    font-variant: small-caps;
+    font-style: bold;
+    letter-spacing: 1px;
+  }
   
   /* Enhanced power color classes with better contrast and text shadows */
   .power-austria {
     color: #ff1a1a; /* Brighter red */
-    text-shadow: 0px 0px 2px rgba(0, 0, 0, 0.7);
-    font-weight: bold;
   }
   
   .power-england {
     color: #1a1aff; /* Brighter blue */
-    text-shadow: 0px 0px 2px rgba(0, 0, 0, 0.7);
-    font-weight: bold;
   }
   
   .power-france {
     color: #00bfff; /* Deeper sky blue */
-    text-shadow: 0px 0px 2px rgba(0, 0, 0, 0.7);
-    font-weight: bold;
   }
   
   .power-germany {
     color: #808080; /* Lighter gray for better contrast */
-    text-shadow: 0px 0px 2px rgba(0, 0, 0, 0.7);
-    font-weight: bold;
   }
   
   .power-italy {
     color: #00cc00; /* Brighter green */
-    text-shadow: 0px 0px 2px rgba(0, 0, 0, 0.7);
-    font-weight: bold;
   }
   
   .power-russia {
     color: #ffffff; /* Pure white instead of light gray */
-    text-shadow: 0px 0px 3px rgba(0, 0, 0, 0.8); /* Stronger shadow for white */
-    font-weight: bold;
   }
   
   .power-turkey {
     color: #ffd700; /* More vibrant gold */
-    text-shadow: 0px 0px 2px rgba(0, 0, 0, 0.7);
-    font-weight: bold;
   }
   
   /* Add specific styling for power names in headers */
@@ -306,11 +300,6 @@
   .chat-header .power-turkey {
     font-size: 1.1em;
     letter-spacing: 1px;
-  }
-  
-  /* Add a fallback for any other elements that might use these colors */
-  [class^="power-"] {
-    font-weight: bold;
   }
   
   /* Order manipulation for U-shape */
