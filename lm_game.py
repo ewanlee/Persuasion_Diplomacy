@@ -81,12 +81,39 @@ def parse_arguments():
         action="store_true",
         help="Enable the planning phase for each power to set strategic directives.",
     )
+    parser.add_argument(
+        "--max_tokens",
+        type=int,
+        default=16000,
+        help="Maximum number of new tokens to generate per LLM call (default: 16000)."
+    )
+    parser.add_argument(
+        "--max_tokens_per_model",
+        type=str,
+        default="",
+        help="Comma-separated list of 7 token limits (in order: AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY). Overrides --max_tokens."
+    )
+
     return parser.parse_args()
 
 
 async def main():
     args = parse_arguments()
     max_year = args.max_year
+
+    powers_order = ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"]
+
+    # Parse token limits
+    default_max_tokens = args.max_tokens
+    model_max_tokens = {p: default_max_tokens for p in powers_order}
+
+    if args.max_tokens_per_model:
+        per_model_values = [s.strip() for s in args.max_tokens_per_model.split(",")]
+        if len(per_model_values) != 7:
+            raise ValueError("Expected 7 values for --max_tokens_per_model, in order: AUSTRIA, ENGLAND, ..., TURKEY")
+        for power, token_val_str in zip(powers_order, per_model_values):
+            model_max_tokens[power] = int(token_val_str)
+
 
     logger.info(
         "Starting a new Diplomacy game for testing with multiple LLMs, now async!"
@@ -162,6 +189,7 @@ async def main():
         if not game.powers[power_name].is_eliminated(): # Only create for active powers initially
             try:
                 client = load_model_client(model_id)
+                client.max_tokens = model_max_tokens[power_name]
                 # TODO: Potentially load initial goals/relationships from config later
                 agent = DiplomacyAgent(power_name=power_name, client=client) 
                 agents[power_name] = agent
