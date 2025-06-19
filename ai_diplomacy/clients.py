@@ -48,6 +48,7 @@ class BaseModelClient:
         self.model_name = model_name
         # Load a default initially, can be overwritten by set_system_prompt
         self.system_prompt = load_prompt("system_prompt.txt") 
+        self.max_tokens = 16000  # default unless overridden
 
     def set_system_prompt(self, content: str):
         """Allows updating the system prompt after initialization."""
@@ -793,6 +794,7 @@ class OpenAIClient(BaseModelClient):
                     {"role": "user", "content": prompt_with_cta},
                 ],
                 temperature=temperature,
+                max_tokens=self.max_tokens,
             )
             if not response or not hasattr(response, "choices") or not response.choices:
                 logger.warning(
@@ -831,7 +833,7 @@ class ClaudeClient(BaseModelClient):
 
             response = await self.client.messages.create(
                 model=self.model_name,
-                max_tokens=4000,
+                max_tokens=self.max_tokens,
                 system=system_prompt_content,  # system is now a top-level parameter
                 messages=[{"role": "user", "content": prompt + "\n\nPROVIDE YOUR RESPONSE BELOW:"}],
                 temperature=temperature,
@@ -879,7 +881,8 @@ class GeminiClient(BaseModelClient):
 
         try:
             generation_config = genai.types.GenerationConfig(
-                temperature=temperature
+                temperature=temperature,
+                max_output_tokens=self.max_tokens
             )
             response = await self.client.generate_content_async(
                 contents=full_prompt,
@@ -928,6 +931,7 @@ class DeepSeekClient(BaseModelClient):
                 ],
                 stream=False,
                 temperature=temperature,
+                max_tokens=self.max_tokens,
             )
             
             logger.debug(f"[{self.model_name}] Raw DeepSeek response:\n{response}")
@@ -981,6 +985,7 @@ class OpenAIResponsesClient(BaseModelClient):
                 "model": self.model_name,
                 "input": full_prompt,
                 "temperature": temperature,
+                "max_tokens": self.max_tokens,
             }
             
             headers = {
@@ -1100,7 +1105,7 @@ class OpenRouterClient(BaseModelClient):
                     {"role": "system", "content": system_prompt_content},
                     {"role": "user", "content": prompt_with_cta}
                 ],
-                max_tokens=4000,
+                max_tokens=self.max_tokens,
                 temperature=temperature,
             )
             
