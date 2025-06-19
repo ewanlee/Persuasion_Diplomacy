@@ -18,11 +18,9 @@ import google.generativeai as genai
 
 from diplomacy.engine.message import GLOBAL
 from .game_history import GameHistory
-from .utils import load_prompt, run_llm_and_log, log_llm_response # Ensure log_llm_response is imported
+from .utils import load_prompt, run_llm_and_log, log_llm_response, generate_random_seed
 # Import DiplomacyAgent for type hinting if needed, but avoid circular import if possible
-# from .agent import DiplomacyAgent 
-from .possible_order_context import generate_rich_order_context
-from .prompt_constructor import construct_order_generation_prompt, build_context_prompt # Ensure build_context_prompt is imported
+from .prompt_constructor import construct_order_generation_prompt, build_context_prompt
 
 # set logger back to just info
 logger = logging.getLogger("client")
@@ -54,7 +52,7 @@ class BaseModelClient:
         self.system_prompt = content
         logger.info(f"[{self.model_name}] System prompt updated.")
 
-    async def generate_response(self, prompt: str) -> str:
+    async def generate_response(self, prompt: str, temperature: float = 0.0, inject_random_seed: bool = True) -> str:
         """
         Returns a raw string from the LLM.
         Subclasses override this.
@@ -112,6 +110,7 @@ class BaseModelClient:
                 power_name=power_name,
                 phase=phase,
                 response_type='order', # Context for run_llm_and_log's own error logging
+                temperature=0
             )
             logger.debug(
                 f"[{self.model_name}] Raw LLM response for {power_name} orders:\n{raw_response}"
@@ -774,18 +773,24 @@ class OpenAIClient(BaseModelClient):
         super().__init__(model_name)
         self.client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-    async def generate_response(self, prompt: str) -> str:
+    async def generate_response(self, prompt: str, temperature: float = 0.0, inject_random_seed: bool = True) -> str:
         # Updated to new API format
         try:
             # Append the call to action to the user's prompt
             prompt_with_cta = prompt + "\n\nPROVIDE YOUR RESPONSE BELOW:"
 
+            system_prompt_content = self.system_prompt
+            if inject_random_seed:
+                random_seed = generate_random_seed()
+                system_prompt_content = f"{random_seed}\n\n{self.system_prompt}"
+
             response = await self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "system", "content": self.system_prompt},
+                    {"role": "system", "content": system_prompt_content},
                     {"role": "user", "content": prompt_with_cta},
                 ],
+                temperature=temperature,
             )
             if not response or not hasattr(response, "choices") or not response.choices:
                 logger.warning(
@@ -814,14 +819,20 @@ class ClaudeClient(BaseModelClient):
         super().__init__(model_name)
         self.client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
-    async def generate_response(self, prompt: str) -> str:
+    async def generate_response(self, prompt: str, temperature: float = 0.0, inject_random_seed: bool = True) -> str:
         # Updated Claude messages format
         try:
+            system_prompt_content = self.system_prompt
+            if inject_random_seed:
+                random_seed = generate_random_seed()
+                system_prompt_content = f"{random_seed}\n\n{self.system_prompt}"
+
             response = await self.client.messages.create(
                 model=self.model_name,
                 max_tokens=4000,
-                system=self.system_prompt,  # system is now a top-level parameter
+                system=system_prompt_content,  # system is now a top-level parameter
                 messages=[{"role": "user", "content": prompt + "\n\nPROVIDE YOUR RESPONSE BELOW:"}],
+                temperature=temperature,
             )
             if not response.content:
                 logger.warning(
@@ -856,12 +867,21 @@ class GeminiClient(BaseModelClient):
         self.client = genai.GenerativeModel(model_name)
         logger.debug(f"[{self.model_name}] Initialized Gemini client (genai.GenerativeModel)")
 
-    async def generate_response(self, prompt: str) -> str:
-        full_prompt = self.system_prompt + prompt + "\n\nPROVIDE YOUR RESPONSE BELOW:"
+    async def generate_response(self, prompt: str, temperature: float = 0.0, inject_random_seed: bool = True) -> str:
+        system_prompt_content = self.system_prompt
+        if inject_random_seed:
+            random_seed = generate_random_seed()
+            system_prompt_content = f"{random_seed}\n\n{self.system_prompt}"
+
+        full_prompt = system_prompt_content + prompt + "\n\nPROVIDE YOUR RESPONSE BELOW:"
 
         try:
+            generation_config = genai.types.GenerationConfig(
+                temperature=temperature
+            )
             response = await self.client.generate_content_async(
                 contents=full_prompt,
+                generation_config=generation_config,
             )
             
             if not response or not response.text:
@@ -888,18 +908,24 @@ class DeepSeekClient(BaseModelClient):
             base_url="https://api.deepseek.com/"
         )
 
-    async def generate_response(self, prompt: str) -> str:
+    async def generate_response(self, prompt: str, temperature: float = 0.0, inject_random_seed: bool = True) -> str:
         try:
             # Append the call to action to the user's prompt
             prompt_with_cta = prompt + "\n\nPROVIDE YOUR RESPONSE BELOW:"
 
+            system_prompt_content = self.system_prompt
+            if inject_random_seed:
+                random_seed = generate_random_seed()
+                system_prompt_content = f"{random_seed}\n\n{self.system_prompt}"
+
             response = await self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "system", "content": self.system_prompt},
+                    {"role": "system", "content": system_prompt_content},
                     {"role": "user", "content": prompt_with_cta},
                 ],
                 stream=False,
+                temperature=temperature,
             )
             
             logger.debug(f"[{self.model_name}] Raw DeepSeek response:\n{response}")
@@ -937,16 +963,22 @@ class OpenAIResponsesClient(BaseModelClient):
         self.base_url = "https://api.openai.com/v1/responses"
         logger.info(f"[{self.model_name}] Initialized OpenAI Responses API client")
 
-    async def generate_response(self, prompt: str) -> str:
+    async def generate_response(self, prompt: str, temperature: float = 0.0, inject_random_seed: bool = True) -> str:
         try:
             # The Responses API uses a different format than chat completions
             # Combine system prompt and user prompt into a single input
-            full_prompt = f"{self.system_prompt}\n\n{prompt}\n\nPROVIDE YOUR RESPONSE BELOW:"
+            system_prompt_content = self.system_prompt
+            if inject_random_seed:
+                random_seed = generate_random_seed()
+                system_prompt_content = f"{random_seed}\n\n{self.system_prompt}"
+
+            full_prompt = f"{system_prompt_content}\n\n{prompt}\n\nPROVIDE YOUR RESPONSE BELOW:"
             
             # Prepare the request payload
             payload = {
                 "model": self.model_name,
-                "input": full_prompt
+                "input": full_prompt,
+                "temperature": temperature,
             }
             
             headers = {
@@ -1048,20 +1080,26 @@ class OpenRouterClient(BaseModelClient):
         
         logger.debug(f"[{self.model_name}] Initialized OpenRouter client")
 
-    async def generate_response(self, prompt: str) -> str:
+    async def generate_response(self, prompt: str, temperature: float = 0.0, inject_random_seed: bool = True) -> str:
         """Generate a response using OpenRouter with robust error handling."""
         try:
             # Append the call to action to the user's prompt
             prompt_with_cta = prompt + "\n\nPROVIDE YOUR RESPONSE BELOW:"
 
+            system_prompt_content = self.system_prompt
+            if inject_random_seed:
+                random_seed = generate_random_seed()
+                system_prompt_content = f"{random_seed}\n\n{self.system_prompt}"
+
             # Prepare standard OpenAI-compatible request
             response = await self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "system", "content": self.system_prompt},
+                    {"role": "system", "content": system_prompt_content},
                     {"role": "user", "content": prompt_with_cta}
                 ],
                 max_tokens=4000,
+                temperature=temperature,
             )
             
             if not response.choices:
@@ -1125,75 +1163,6 @@ def load_model_client(model_id: str) -> BaseModelClient:
     else:
         # Default to OpenAI (for models like o3-mini, gpt-4o, etc.)
         return OpenAIClient(model_id)
-
-
-##############################################################################
-# 4) Example Usage in a Diplomacy "main" or Similar
-##############################################################################
-
-
-async def example_game_loop(game):
-    """
-    Pseudocode: Integrate with the Diplomacy loop.
-    """
-    # Suppose we gather all active powers
-    active_powers = [
-        (p_name, p_obj)
-        for p_name, p_obj in game.powers.items()
-        if not p_obj.is_eliminated()
-    ]
-    power_model_mapping = assign_models_to_powers()
-
-    for power_name, power_obj in active_powers:
-        model_id = power_model_mapping.get(power_name, "o3-mini")
-        client = load_model_client(model_id)
-
-        # Get possible orders from the game
-        possible_orders = game.get_all_possible_orders()
-        board_state = game.get_state()
-        
-        # Example: Fetch agent instance (assuming agents are stored in a dict)
-        # agent = agents_dict[power_name] 
-        # formatted_diary = agent.format_private_diary_for_prompt()
-
-        # Get orders from the client
-        # orders = await client.get_orders(
-        #     board_state, 
-        #     power_name, 
-        #     possible_orders,
-        #     agent_private_diary_str=formatted_diary # Pass the diary
-        # )
-        # game.set_orders(power_name, orders)
-
-    # Then process, etc.
-    game.process()
-
-
-class LMServiceVersus:
-    """
-    Optional wrapper class if you want extra control.
-    For example, you could store or reuse clients, etc.
-    """
-
-    def __init__(self):
-        self.power_model_map = assign_models_to_powers()
-
-    async def get_orders_for_power(self, game, power_name, agent): # Added agent
-        model_id = self.power_model_map.get(power_name, "o3-mini")
-        client = load_model_client(model_id)
-        possible_orders = gather_possible_orders(game, power_name)
-        board_state = game.get_state()
-        
-        formatted_diary = agent.format_private_diary_for_prompt() # Get diary from agent
-
-        # This method signature in LMServiceVersus might need to align with client.get_orders
-        # or client.get_orders needs to be called with all its required params.
-        # For now, assuming client.get_orders is called elsewhere with full context.
-        # This example shows how to get the diary string.
-        # return await client.get_orders(
-        #    board_state, power_name, possible_orders, agent_private_diary_str=formatted_diary
-        # )
-        pass # Placeholder for actual call
 
 
 ##############################################################################

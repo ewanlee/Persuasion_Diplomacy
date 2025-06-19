@@ -5,6 +5,8 @@ from typing import Dict, List, Tuple, Set, Optional
 from diplomacy import Game
 import csv
 from typing import TYPE_CHECKING
+import random
+import string
 
 # Avoid circular import for type hinting
 if TYPE_CHECKING:
@@ -34,7 +36,7 @@ def assign_models_to_powers() -> Dict[str, str]:
     """
     
     # POWER MODELS
-    
+    """
     return {
         "AUSTRIA": "o3",
         "ENGLAND": "gpt-4.1-2025-04-14",
@@ -44,19 +46,19 @@ def assign_models_to_powers() -> Dict[str, str]:
         "RUSSIA": "gpt-4o",
         "TURKEY": "o4-mini",
     }
-    
+    """
     # TEST MODELS
-    """
+    
     return {
-        "AUSTRIA": "openrouter-google/gemini-2.5-flash-preview",
-        "ENGLAND": "openrouter-google/gemini-2.5-flash-preview",
-        "FRANCE": "openrouter-google/gemini-2.5-flash-preview",
-        "GERMANY": "openrouter-google/gemini-2.5-flash-preview",
-        "ITALY": "openrouter-google/gemini-2.5-flash-preview",  
-        "RUSSIA": "openrouter-google/gemini-2.5-flash-preview",
-        "TURKEY": "openrouter-google/gemini-2.5-flash-preview",
+        "AUSTRIA": "openrouter-google/gemini-2.5-flash-preview-05-20",
+        "ENGLAND": "openrouter-google/gemini-2.5-flash-preview-05-20",
+        "FRANCE": "openrouter-google/gemini-2.5-flash-preview-05-20",
+        "GERMANY": "openrouter-google/gemini-2.5-flash-preview-05-20",
+        "ITALY": "openrouter-google/gemini-2.5-flash-preview-05-20",  
+        "RUSSIA": "openrouter-google/gemini-2.5-flash-preview-05-20",
+        "TURKEY": "openrouter-google/gemini-2.5-flash-preview-05-20",
     }
-    """
+    
     
 
 def gather_possible_orders(game: Game, power_name: str) -> Dict[str, List[str]]:
@@ -329,13 +331,32 @@ async def run_llm_and_log(
     power_name: Optional[str], # Kept for context, but not used for logging here
     phase: str, # Kept for context, but not used for logging here
     response_type: str, # Kept for context, but not used for logging here
+    temperature: float = 0.0,
 ) -> str:
     """Calls the client's generate_response and returns the raw output. Logging is handled by the caller."""
     raw_response = "" # Initialize in case of error
     try:
-        raw_response = await client.generate_response(prompt)
+        raw_response = await client.generate_response(prompt, temperature=temperature)
     except Exception as e:
         # Log the API call error. The caller will decide how to log this in llm_responses.csv
         logger.error(f"API Error during LLM call for {client.model_name}/{power_name}/{response_type} in phase {phase}: {e}", exc_info=True)
         # raw_response remains "" indicating failure to the caller
     return raw_response
+
+# This generates a few lines of random alphanum chars to inject into the 
+# system prompt. This lets us use temp=0 while still getting variation 
+# between trials.
+# Temp=0 is important for better performance on deciding moves, and to 
+# ensure valid json outputs.
+def generate_random_seed(n_lines: int = 5, n_chars_per_line: int = 80):
+        # Generate x lines of y random alphanumeric characters
+        seed_lines = [
+            ''.join(random.choices(string.ascii_letters + string.digits, k=n_chars_per_line))            
+            for _ in range(n_lines)
+        ]
+        random_seed_block = (
+            "<RANDOM SEED PLEASE IGNORE>\n" +
+            "\n".join(seed_lines) +
+            "\n</RANDOM SEED>"
+        )
+        return random_seed_block
