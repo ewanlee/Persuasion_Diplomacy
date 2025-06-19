@@ -1,16 +1,117 @@
 import json
+import logging
 import os
 import argparse
 from collections import defaultdict
 import pandas as pd # For easier display of grouped averages
 import traceback # For detailed error logging
+import sys
+import re
+
+# logging.basicConfig(level=logging.DEBUG) # Removed for more specific config
+
+def extract_orders_from_llm_response(llm_response_content, model_name_for_logging="UNKNOWN_MODEL"):
+    """
+    Extracts a list of order strings from various formats of llm_response_content.
+    Handles direct lists, JSON strings, and strings with embedded "PARSABLE OUTPUT:" JSON blocks.
+    """
+    orders = []
+    processed_content = ""
+
+    if isinstance(llm_response_content, list):
+        processed_content = "\n".join(str(item) for item in llm_response_content)
+        logging.debug(f"Model {model_name_for_logging}: Joined list llm_response_content into single string for parsing.")
+    elif isinstance(llm_response_content, str):
+        processed_content = llm_response_content
+    else:
+        logging.warning(f"Model {model_name_for_logging}: llm_response_content is not a list or string, but {type(llm_response_content)}. Cannot extract orders.")
+        return []
+
+    # Attempt to parse "PARSABLE OUTPUT:" block first
+    match_parsable = re.search(r"PARSABLE OUTPUT:\s*(?:\{\{)?\s*\"orders\"\s*:\s*(\[.*?\])\s*(?:\}\})?", processed_content, re.IGNORECASE | re.DOTALL)
+    if match_parsable:
+        orders_json_str = match_parsable.group(1)
+        try:
+            parsed_orders = json.loads(orders_json_str)
+            if isinstance(parsed_orders, list):
+                orders = [str(o).strip() for o in parsed_orders if str(o).strip()]
+                logging.debug(f"Model {model_name_for_logging}: Extracted orders from 'PARSABLE OUTPUT:' block: {orders}")
+                return orders
+        except json.JSONDecodeError as e:
+            logging.warning(f"Model {model_name_for_logging}: Found 'PARSABLE OUTPUT:' but failed to parse orders JSON: {orders_json_str}. Error: {e}")
+
+    # If not found via "PARSABLE OUTPUT:", attempt to parse the whole content as JSON
+    try:
+        if processed_content.strip().startswith('{') or processed_content.strip().startswith('['):
+            data = json.loads(processed_content)
+            if isinstance(data, dict) and 'orders' in data and isinstance(data['orders'], list):
+                orders = [str(o).strip() for o in data['orders'] if str(o).strip()]
+                logging.debug(f"Model {model_name_for_logging}: Extracted orders from top-level JSON 'orders' key: {orders}")
+                return orders
+            elif isinstance(data, list):
+                potential_orders = [str(o).strip() for o in data if str(o).strip()]
+                if potential_orders and all(len(po.split()) < 10 for po in potential_orders): # Heuristic
+                    orders = potential_orders
+                    logging.debug(f"Model {model_name_for_logging}: Extracted orders from top-level JSON list: {orders}")
+                    return orders
+    except json.JSONDecodeError:
+        pass # Fall through
+
+    # Fallback: split by lines and apply heuristics
+    logging.debug(f"Model {model_name_for_logging}: No structured orders found by JSON or PARSABLE OUTPUT, falling back to line splitting. Content (first 300 chars): {processed_content[:300]}...")
+    raw_lines = [order.strip() for order in processed_content.splitlines() if order.strip()]
+    potential_orders_from_lines = []
+    for line in raw_lines:
+        parts = line.split()
+        if not parts: continue
+        first_word_upper = parts[0].upper()
+        if 2 <= len(parts) <= 7 and (first_word_upper == "A" or first_word_upper == "F"):
+            if "REASONING:" not in line.upper() and \
+               "PARSABLE OUTPUT:" not in line.upper() and \
+               "{{}}" not in line and \
+               "\"ORDERS\":" not in line.upper() and \
+               not (line.strip().startswith('[') and line.strip().endswith(']')) and \
+               not (line.strip().startswith('{') and line.strip().endswith('}')):
+                potential_orders_from_lines.append(line)
+    
+    if potential_orders_from_lines:
+        logging.debug(f"Model {model_name_for_logging}: Extracted orders via line splitting (fallback): {potential_orders_from_lines}")
+        return potential_orders_from_lines
+    else:
+        logging.debug(f"Model {model_name_for_logging}: No orders extracted via line splitting fallback. Content (first 300 chars): {processed_content[:300]}")
+        return []
+
 
 def analyze_json_files(json_directory, output_file_path):
-    print(f"DEBUG: analyze_json_files called with json_directory='{json_directory}', output_file_path='{output_file_path}'")
+    # Configure logging to file and console
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+
+    # Clear existing handlers to prevent duplicate logs if function is called multiple times
+    if logger.hasHandlers():
+        logger.handlers.clear()
+
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    # File handler - writes DEBUG and higher to the specified output file
+    # Using mode 'w' to overwrite the log file for each analysis run
+    fh = logging.FileHandler(output_file_path, mode='w') 
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+
+    # Stream handler - writes INFO and higher to console (stdout)
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setLevel(logging.INFO) # Console can be less verbose
+    sh.setFormatter(formatter)
+    logger.addHandler(sh)
+
+    logging.info(f"analyze_json_files starting. JSON Directory: '{json_directory}', Output File: '{output_file_path}'")
     
     total_rows = 0
     total_characters = 0
     response_type_stats = defaultdict(lambda: {'prompt_chars': [], 'response_chars': []})
+    model_order_stats = defaultdict(lambda: {'successful_convoys': 0, 'successful_supports': 0, 'total_successful_orders_processed': 0})
     
     outfile = None # Initialize outfile to None
     try:
@@ -54,6 +155,64 @@ def analyze_json_files(json_directory, output_file_path):
                         response_type = entry.get('response_type', "UNKNOWN_RESPONSE_TYPE")
                         prompt_content = entry.get('prompt')
                         llm_response_content = entry.get('llm_response')
+
+                        # Section for parsing successful orders by model
+                        if response_type == "order_generation":
+                            model = entry.get('model', 'UNKNOWN_MODEL')
+                            success = entry.get('success') # Expected to be boolean True/False or None
+
+                            # Check for boolean True or string 'Success' (case-insensitive)
+                            is_successful_order_set = False
+                            if success is True:
+                                is_successful_order_set = True
+                            elif isinstance(success, str) and success.lower() == 'success':
+                                is_successful_order_set = True
+                            # Add other string variations of success if needed, e.g., 'succeeded'
+                            # elif isinstance(success, str) and success.lower() == 'succeeded':
+                            #     is_successful_order_set = True
+
+                            if is_successful_order_set and llm_response_content is not None:
+                                orders_list = extract_orders_from_llm_response(llm_response_content, model)
+                                
+                                if orders_list: # Only proceed if orders were actually extracted
+                                    model_order_stats[model]['total_successful_orders_processed'] += 1
+                                    
+                                    current_set_has_convoy = False
+                                    current_set_has_support = False
+                                    for order_str in orders_list:
+                                        parts = order_str.upper().split()
+                                        # Convoy: F ENG C A LVP - BEL
+                                        if len(parts) == 7 and parts[0] == 'F' and parts[2] == 'C' and parts[3] == 'A' and parts[5] == '-':
+                                            model_order_stats[model]['successful_convoys'] += 1
+                                            logging.debug(f"Found convoy: {order_str} for model {model}")
+                                            current_set_has_convoy = True
+                                        # Updated Support order detection
+                                        elif len(parts) >= 4 and parts[2] == 'S' and parts[0] in ['A', 'F'] and parts[3] in ['A', 'F']: # Basic check for S and unit types
+                                            is_support = False
+                                            support_type = "unknown"
+                                            # Case 1: Implicit Support Hold (5 parts) e.g., F ENG S F NTH
+                                            if len(parts) == 5:
+                                                is_support = True
+                                                support_type = "implicit hold"
+                                            # Case 2: Explicit Support Hold (6 parts) e.g., F ENG S F NTH H
+                                            elif len(parts) == 6 and parts[5] == 'H':
+                                                is_support = True
+                                                support_type = "explicit hold"
+                                            # Case 3: Support Move (7 parts) e.g., F ENG S F NTH - BEL
+                                            elif len(parts) == 7 and parts[5] == '-':
+                                                if len(parts[6]) > 0: # Basic check for destination
+                                                    is_support = True
+                                                    support_type = "move"
+                                            
+                                            if is_support:
+                                                model_order_stats[model]['successful_supports'] += 1
+                                                logging.debug(f"Found support ({support_type}): {order_str} for model {model}")
+                                                current_set_has_support = True
+                                    
+                                    if not current_set_has_convoy and not current_set_has_support: # Check if still no C/S after parsing this non-empty list
+                                        logging.debug(f"Model {model}: Successful order set (total {len(orders_list)} parsed orders) had no C/S. Parsed Orders: {orders_list}")
+                                else: # else for 'if orders_list:' (i.e., orders_list is empty)
+                                    logging.debug(f"Model {model}: Successful order set, but no orders extracted by helper. LLM Response (first 300 chars): {str(llm_response_content)[:300]}")
 
                         if prompt_content is not None and isinstance(prompt_content, str):
                             response_type_stats[response_type]['prompt_chars'].append(len(prompt_content))
@@ -113,6 +272,30 @@ def analyze_json_files(json_directory, output_file_path):
             no_avg_data_msg = "No data available for response type analysis.\n"
             outfile.write(no_avg_data_msg)
             print(no_avg_data_msg.strip())
+
+        # --- Output Successful Convoy/Support Orders by Model ---
+        outfile.write("\n--- Successful Convoy/Support Orders by Model ---\n")
+        order_stats_data = []
+        # Sort models for consistent output, handle if model_order_stats is empty
+        sorted_models = sorted(model_order_stats.keys())
+
+        for model_key in sorted_models:
+            counts = model_order_stats[model_key]
+            order_stats_data.append({
+                'Model': model_key,
+                'Successful Convoys': counts['successful_convoys'],
+                'Successful Supports': counts['successful_supports'],
+                'Total Order Sets Processed': counts['total_successful_orders_processed']
+            })
+        
+        if order_stats_data:
+            df_orders = pd.DataFrame(order_stats_data)
+            outfile.write(df_orders.to_string(index=False) + "\n")
+            print("\nSuccessful Convoy/Support Orders by Model:")
+            print(df_orders.to_string(index=False))
+        else:
+            outfile.write("No successful convoy or support orders found for analysis, or no 'order_generation' entries were successful.\n")
+            print("\nNo successful convoy or support orders found for analysis, or no 'order_generation' entries were successful.")
         
         outfile.write("\nAnalysis script finished successfully.\n")
         print(f"\nAnalysis complete. Summary saved to: {output_file_path}")
