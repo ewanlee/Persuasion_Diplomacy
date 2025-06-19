@@ -155,5 +155,8 @@ model_power_statistics.csv
 **/test-results/
 **/playwright-report/
 /diplomacy_cicero
+
+# dev stuff
+bct.txt
 analysis_summary.txt
 analysis_summary_debug.txt
