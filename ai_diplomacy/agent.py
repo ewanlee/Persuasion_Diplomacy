@@ -5,6 +5,7 @@ import json
 import re
 import json_repair
 import json5  # More forgiving JSON parser
+import ast # For literal_eval
 
 # Assuming BaseModelClient is importable from clients.py in the same directory
 from .clients import BaseModelClient, load_model_client 
@@ -146,8 +147,11 @@ class DiplomacyAgent:
                     try:
                         cleaned = self._clean_json_text(json_text)
                         result = json.loads(cleaned)
-                        logger.debug(f"[{self.power_name}] Successfully parsed JSON with pattern {pattern_idx}, match {match_idx}")
-                        return result
+                        if isinstance(result, dict):
+                            logger.debug(f"[{self.power_name}] Successfully parsed JSON object with pattern {pattern_idx}, match {match_idx}")
+                            return result
+                        else:
+                            logger.warning(f"[{self.power_name}] Parsed JSON with pattern {pattern_idx}, match {match_idx}, but got type {type(result)} instead of dict. Content: {str(result)[:200]}")
                     except json.JSONDecodeError as e_initial:
                         logger.debug(f"[{self.power_name}] Standard JSON parse failed: {e_initial}")
                         
@@ -185,19 +189,58 @@ class DiplomacyAgent:
                     # Attempt 2: json5 (more forgiving)
                     try:
                         result = json5.loads(json_text)
-                        logger.debug(f"[{self.power_name}] Successfully parsed with json5")
-                        return result
+                        if isinstance(result, dict):
+                            logger.debug(f"[{self.power_name}] Successfully parsed JSON object with json5")
+                            return result
+                        else:
+                            logger.warning(f"[{self.power_name}] Parsed with json5, but got type {type(result)} instead of dict. Content: {str(result)[:200]}")
                     except Exception as e:
                         logger.debug(f"[{self.power_name}] json5 parse failed: {e}")
                     
                     # Attempt 3: json-repair
                     try:
                         result = json_repair.loads(json_text)
-                        logger.debug(f"[{self.power_name}] Successfully parsed with json-repair")
-                        return result
+                        if isinstance(result, dict):
+                            logger.debug(f"[{self.power_name}] Successfully parsed JSON object with json-repair")
+                            return result
+                        else:
+                            logger.warning(f"[{self.power_name}] Parsed with json-repair, but got type {type(result)} instead of dict. Content: {str(result)[:200]}")
                     except Exception as e:
                         logger.debug(f"[{self.power_name}] json-repair failed: {e}")
         
+        # New Strategy: Parse markdown-like key-value pairs
+        # Example: **key:** value
+        # This comes after trying to find fenced JSON blocks but before broad fallbacks.
+        if not matches: # Only try if previous patterns didn't yield a dict from a match
+            try:
+                markdown_data = {}
+                # Regex to find **key:** value, where value can be multi-line until next **key:** or end of string
+                md_pattern = r"\*\*(?P<key>[^:]+):\*\*\s*(?P<value>[\s\S]*?)(?=(?:\n\s*\*\*|$))"
+                for match in re.finditer(md_pattern, text, re.DOTALL):
+                    key_name = match.group('key').strip()
+                    value_str = match.group('value').strip()
+                    try:
+                        # Attempt to evaluate the value string as a Python literal
+                        # This handles lists, strings, numbers, booleans, None
+                        actual_value = ast.literal_eval(value_str)
+                        markdown_data[key_name] = actual_value
+                    except (ValueError, SyntaxError) as e_ast:
+                        # If ast.literal_eval fails, it might be a plain string that doesn't look like a literal
+                        # Or it could be genuinely malformed. We'll take it as a string if it's not empty.
+                        if value_str: # Only add if it's a non-empty string
+                            markdown_data[key_name] = value_str # Store as string
+                        logger.debug(f"[{self.power_name}] ast.literal_eval failed for key '{key_name}', value '{value_str[:50]}...': {e_ast}. Storing as string if non-empty.")
+                
+                if markdown_data: # If we successfully extracted any key-value pairs this way
+                    # Check if essential keys are present, if needed, or just return if any data found
+                    # For now, if markdown_data is populated, we assume it's the intended structure.
+                    logger.debug(f"[{self.power_name}] Successfully parsed markdown-like key-value format. Data: {str(markdown_data)[:200]}")
+                    return markdown_data
+                else:
+                    logger.debug(f"[{self.power_name}] No markdown-like key-value pairs found or parsed using markdown strategy.")
+            except Exception as e_md_parse:
+                logger.error(f"[{self.power_name}] Error during markdown-like key-value parsing: {e_md_parse}", exc_info=True)
+
         # Fallback: Try to find ANY JSON-like structure
         try:
             # Find the first { and last }
@@ -215,8 +258,11 @@ class DiplomacyAgent:
                     try:
                         cleaned = self._clean_json_text(potential_json) if parser_name == "json" else potential_json
                         result = parser_func(cleaned)
-                        logger.debug(f"[{self.power_name}] Fallback parse succeeded with {parser_name}")
-                        return result
+                        if isinstance(result, dict):
+                            logger.debug(f"[{self.power_name}] Fallback parse succeeded with {parser_name}, got dict.")
+                            return result
+                        else:
+                            logger.warning(f"[{self.power_name}] Fallback parse with {parser_name} succeeded, but got type {type(result)} instead of dict. Content: {str(result)[:200]}")
                     except Exception as e:
                         logger.debug(f"[{self.power_name}] Fallback {parser_name} failed: {e}")
                 
@@ -229,8 +275,11 @@ class DiplomacyAgent:
                     text_fixed = re.sub(r': *\'([^\']*)\'', r': "\1"', text_fixed)
                     
                     result = json.loads(text_fixed)
-                    logger.debug(f"[{self.power_name}] Aggressive cleaning worked")
-                    return result
+                    if isinstance(result, dict):
+                        logger.debug(f"[{self.power_name}] Aggressive cleaning worked, got dict.")
+                        return result
+                    else:
+                        logger.warning(f"[{self.power_name}] Aggressive cleaning worked, but got type {type(result)} instead of dict. Content: {str(result)[:200]}")
                 except json.JSONDecodeError:
                     pass
                     
@@ -240,8 +289,13 @@ class DiplomacyAgent:
         # Last resort: Try json-repair on the entire text
         try:
             result = json_repair.loads(text)
-            logger.warning(f"[{self.power_name}] Last resort json-repair succeeded")
-            return result
+            if isinstance(result, dict):
+                logger.warning(f"[{self.power_name}] Last resort json-repair succeeded, got dict.")
+                return result
+            else:
+                logger.warning(f"[{self.power_name}] Last resort json-repair succeeded, but got type {type(result)} instead of dict. Content: {str(result)[:200]}")
+                # If even the last resort doesn't give a dict, return empty dict
+                return {}
         except Exception as e:
             logger.error(f"[{self.power_name}] All JSON extraction attempts failed. Original text: {original_text[:500]}...")
             return {}

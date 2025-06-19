@@ -15,6 +15,8 @@ from openai import AsyncOpenAI as AsyncDeepSeekOpenAI # Alias for clarity
 from anthropic import AsyncAnthropic
 
 import google.generativeai as genai
+from together import AsyncTogether
+from together.error import APIError as TogetherAPIError # For specific error handling
 
 from diplomacy.engine.message import GLOBAL
 from .game_history import GameHistory
@@ -1131,6 +1133,62 @@ class OpenRouterClient(BaseModelClient):
 
 
 ##############################################################################
+# TogetherAI Client
+##############################################################################
+class TogetherAIClient(BaseModelClient):
+    """
+    Client for Together AI models.
+    Model names should be passed without the 'together-' prefix.
+    """
+
+    def __init__(self, model_name: str):
+        super().__init__(model_name)  # model_name here is the actual Together AI model identifier
+        self.api_key = os.environ.get("TOGETHER_API_KEY")
+        if not self.api_key:
+            raise ValueError("TOGETHER_API_KEY environment variable is required for TogetherAIClient")
+        
+        # The model_name passed to super() is used for logging and identification.
+        # The actual model name for the API call is self.model_name (from super class).
+        self.client = AsyncTogether(api_key=self.api_key)
+        logger.info(f"[{self.model_name}] Initialized TogetherAI client for model: {self.model_name}")
+
+    async def generate_response(self, prompt: str) -> str:
+        """
+        Generates a response from the Together AI model.
+        """
+        logger.debug(f"[{self.model_name}] Generating response with prompt (first 100 chars): {prompt[:100]}...")
+        
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+
+        try:
+            # Ensure the model name used here is the one intended for the API,
+            # which is self.model_name as set by BaseModelClient.__init__
+            response = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                # Consider adding max_tokens, temperature, etc. as needed
+                # max_tokens=2048, # Example
+            )
+            
+            if response.choices and response.choices[0].message and response.choices[0].message.content is not None:
+                content = response.choices[0].message.content
+                logger.debug(f"[{self.model_name}] Received response (first 100 chars): {content[:100]}...")
+                return content.strip()
+            else:
+                logger.warning(f"[{self.model_name}] No content in response from Together AI or response structure unexpected: {response}")
+                return ""
+        except TogetherAPIError as e:
+            logger.error(f"[{self.model_name}] Together AI API error: {e}", exc_info=True)
+            return f"Error: Together AI API error - {str(e)}" # Return a string with error info
+        except Exception as e:
+            logger.error(f"[{self.model_name}] Unexpected error in TogetherAIClient: {e}", exc_info=True)
+            return f"Error: Unexpected error - {str(e)}" # Return a string with error info
+
+
+##############################################################################
 # 3) Factory to Load Model Client
 ##############################################################################
 
@@ -1152,7 +1210,11 @@ def load_model_client(model_id: str) -> BaseModelClient:
     if lower_id == "o3-pro":
         return OpenAIResponsesClient(model_id)
     # Check for OpenRouter first to handle prefixed models like openrouter-deepseek
-    elif "openrouter" in lower_id or "quasar" in lower_id:
+    elif model_id.startswith("together-"):
+        actual_model_name = model_id.split("together-", 1)[1]
+        logger.info(f"Loading TogetherAI client for model: {actual_model_name} (original ID: {model_id})")
+        return TogetherAIClient(actual_model_name)
+    elif "openrouter" in model_id.lower() or "/" in model_id: # More general check for OpenRouterClient(model_id)
         return OpenRouterClient(model_id)
     elif "claude" in lower_id:
         return ClaudeClient(model_id)

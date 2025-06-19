@@ -16,3 +16,4 @@ openai
 anthropic
 google-genai
 json-repair
+together
