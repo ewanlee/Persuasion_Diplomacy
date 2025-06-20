@@ -290,6 +290,33 @@ The game JSON includes special fields for AI analysis:
 - `agent_relationships` - Diplomatic standings at each phase
 - `final_agent_states` - End-game goals and relationships
 
+### Data Processing and RL Analysis Pipeline
+
+For detailed analysis of LLM interactions and order success rates, a two-step pipeline is used:
+
+1.  **Convert CSV to RL JSON**:
+    The `csv_to_rl_json.py` script processes `llm_responses.csv` files, typically found in game-specific subdirectories ending with "FULL_GAME" (e.g., `results/20250524_..._FULL_GAME/`). It converts this raw interaction data into a JSON format suitable for Reinforcement Learning (RL) analysis.
+
+    To process all relevant CSVs in batch:
+    ```bash
+    python csv_to_rl_json.py --scan_dir results/
+    ```
+    This command scans the `results/` directory for "FULL_GAME" subfolders, converts their `llm_responses.csv` files, and outputs all generated `*_rl.json` files into the `results/json/` directory.
+
+2.  **Analyze RL JSON Files**:
+    The `analyze_rl_json.py` script then analyzes the JSON files generated in the previous step. It aggregates statistics on successful and failed convoy and support orders, categorized by model.
+
+    To run the analysis:
+    ```bash
+    python analyze_rl_json.py results/json/
+    ```
+    This command processes all `*_rl.json` files in the `results/json/` directory and generates two reports in the project's root directory:
+    - `analysis_summary.txt`: A clean summary of order statistics.
+    - `analysis_summary_debug.txt`: A detailed report including unique 'success' field values and other debug information.
+
+This pipeline allows for a comprehensive understanding of LLM performance in generating valid and successful game orders.
+
+
 ### Post-Game Analysis Tools
 
 #### Strategic Moment Analysis
