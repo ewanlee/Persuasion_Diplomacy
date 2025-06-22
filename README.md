@@ -236,12 +236,91 @@ python lm_game.py --max_year 1910 --planning_phase --num_negotiation_rounds 2
 # Custom model assignment (order: AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY)
 python lm_game.py --models "claude-3-5-sonnet-20241022,gpt-4o,claude-3-5-sonnet-20241022,gpt-4o,claude-3-5-sonnet-20241022,gpt-4o,claude-3-5-sonnet-20241022"
 
-# Output to specific file
-python lm_game.py --output results/my_game.json
-
 # Run until game completion or specific year
 python lm_game.py --num_negotiation_rounds 2 --planning_phase
+
+# Write all artefacts to a chosen directory (auto-resumes if it already exists)
+python lm_game.py --run_dir results/game_run_001
+
+# Resume an interrupted game from a specific phase
+python lm_game.py --run_dir results/game_run_001 --resume_from_phase S1902M
+
+# Critical-state analysis: resume from an existing run but save new results elsewhere
+python lm_game.py \
+  --run_dir results/game_run_001 \
+  --critical_state_analysis_dir results/critical_analysis_001 \
+  --resume_from_phase F1903M
+
+# End the simulation after a particular phase regardless of remaining years
+python lm_game.py --run_dir results/game_run_002 --end_at_phase F1905M
+
+# Set the global max_tokens generation limit
+python lm_game.py --run_dir results/game_run_003 --max_tokens 8000
+
+# Per-model token limits (AU,EN,FR,GE,IT,RU,TR)
+python lm_game.py --run_dir results/game_run_004 \
+  --max_tokens_per_model "8000,8000,16000,8000,8000,16000,8000"
+
+# Use a custom prompts directory
+python lm_game.py --run_dir results/game_run_005 --prompts_dir ./prompts/my_variants
 ```
+
+### Running Batch Experiments with **`experiment_runner.py`**
+
+`experiment_runner.py` is a lightweight orchestrator: it spins up many `lm_game.py` runs in parallel, gathers their artefacts under one *experiment directory*, and then executes the analysis modules you specify.
+All flags that belong to **`lm_game.py`** can be passed straight through; the runner validates them and forwards them unchanged to every game instance.
+
+---
+
+#### Examples
+
+```bash
+# Run 10 independent games (iterations) in parallel, using a custom prompts dir
+# and a single model (GPT-4o) for all seven powers.
+python3 experiment_runner.py \
+    --experiment_dir "results/exp001" \
+    --iterations 10 \
+    --parallel 10 \
+    --max_year 1905 \
+    --num_negotiation_rounds 0 \
+    --prompts_dir "ai_diplomacy/prompts" \
+    --models "gpt-4o,gpt-4o,gpt-4o,gpt-4o,gpt-4o,gpt-4o,gpt-4o"
+
+
+# Critical-state analysis: resume every run from W1901A (taken from an existing
+# base run) and stop after S1902M.  Two analysis modules will be executed:
+#  • summary         → aggregated results & scores
+#  • critical_state  → before/after snapshots around the critical phase
+python3 experiment_runner.py \
+    --experiment_dir "results/exp002" \
+    --iterations 10 \
+    --parallel 10 \
+    --resume_from_phase W1901A \
+    --end_at_phase S1902M \
+    --num_negotiation_rounds 0 \
+    --critical_state_base_run "results/test1" \
+    --prompts_dir "ai_diplomacy/prompts" \
+    --analysis_modules "summary,critical_state" \
+    --models "gpt-4o,gpt-4o,gpt-4o,gpt-4o,gpt-4o,gpt-4o,gpt-4o"
+```
+
+*(Any other `lm_game.py` flags—`--planning_phase`, `--max_tokens`, etc.—can be added exactly where you’d use them on a single-game run.)*
+
+---
+
+#### Experiment-runner–specific arguments
+
+| Flag                              | Type / Default             | Description                                                                                                                                                                              |
+| --------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--experiment_dir` **(required)** | `Path`                     | Root folder for the experiment; sub-folders `runs/` and `analysis/` are managed automatically. Re-running with the same directory will **resume** existing runs and regenerate analysis. |
+| `--iterations`                    | `int`, default `1`         | How many individual games to launch for this experiment.                                                                                                                                 |
+| `--parallel`                      | `int`, default `1`         | Max number of games to execute concurrently (uses a process pool).                                                                                                                       |
+| `--analysis_modules`              | `str`, default `"summary"` | Comma-separated list of analysis modules to run after all games finish. Modules are imported from `experiment_runner.analysis.<name>` and must provide `run(experiment_dir, ctx)`.       |
+| `--critical_state_base_run`       | `Path`, optional           | Path to an **existing** `run_dir` produced by a previous `lm_game` run. Each iteration resumes from that snapshot; new artefacts are written under the current `experiment_dir`.         |
+| `--seed_base`                     | `int`, default `42`        | Base random seed. Run *ɪ* receives seed = `seed_base + ɪ`, enabling reproducible batches.                                                                                                |
+
+*(All other command-line flags belong to `lm_game.py` and are forwarded unchanged.)*
+
 
 ### Environment Setup
 

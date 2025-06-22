@@ -56,6 +56,12 @@ def parse_arguments():
         help="Directory for results. If it exists, the game resumes. If not, it's created. Defaults to a new timestamped directory.",
     )
     parser.add_argument(
+        "--output",            # alias for back compatibility
+        dest="run_dir",        # write to the same variable as --run_dir
+        type=str,
+        help=argparse.SUPPRESS # hides it from `--help`
+    )
+    parser.add_argument(
         "--critical_state_analysis_dir",
         type=str,
         default="",
@@ -106,10 +112,22 @@ def parse_arguments():
         help="Maximum number of new tokens to generate per LLM call (default: 16000)."
     )
     parser.add_argument(
+        "--seed_base",
+        type=int,
+        default=42,
+        help="RNG seed placeholder for compatibility with experiment_runner. Currently unused."
+    )
+    parser.add_argument(
         "--max_tokens_per_model",
         type=str,
         default="",
         help="Comma-separated list of 7 token limits (in order: AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY). Overrides --max_tokens."
+    )
+    parser.add_argument(
+        "--prompts_dir",
+        type=str,
+        default=None,
+        help="Path to the directory containing prompt files. Defaults to the packaged prompts directory."
     )
 
     return parser.parse_args()
@@ -179,8 +197,17 @@ async def main():
     if is_resuming:
         try:
             # When resuming, we load the state and also the config from the last saved phase.
-            # We will continue to use THAT config, ignoring the current script's args.
-            game, agents, game_history = load_game_state(run_dir, game_file_name, args.resume_from_phase)
+            game, agents, game_history, loaded_run_config = load_game_state(run_dir, game_file_name, args.resume_from_phase)
+            if loaded_run_config:
+                # Use the saved config, but allow current CLI args to override control-flow parameters
+                run_config = loaded_run_config
+                run_config.run_dir = args.run_dir
+                run_config.critical_state_analysis_dir = args.critical_state_analysis_dir
+                run_config.resume_from_phase = args.resume_from_phase
+                run_config.end_at_phase = args.end_at_phase
+                # If prompts_dir is specified now, it overrides the saved one.
+                if args.prompts_dir is not None:
+                    run_config.prompts_dir = args.prompts_dir
             logger.info(f"Successfully resumed game from phase: {game.get_current_phase()}.")
         except (FileNotFoundError, ValueError) as e:
             logger.error(f"Could not resume game: {e}. Starting a new game instead.")
@@ -204,7 +231,7 @@ async def main():
         if year_int > run_config.max_year:
             logger.info(f"Reached max year {run_config.max_year}, stopping simulation.")
             break
-        if run_config.end_at_phase and game.phases and game.phases[-1].name == run_config.end_at_phase:
+        if run_config.end_at_phase and current_phase == run_config.end_at_phase:
             logger.info(f"Reached end phase {run_config.end_at_phase}, stopping simulation.")
             break
 
@@ -289,7 +316,7 @@ async def main():
         # Diary Consolidation
         if current_short_phase.startswith("S") and current_short_phase.endswith("M"):
             consolidation_tasks = [
-                run_diary_consolidation(agent, game, llm_log_file_path)
+                run_diary_consolidation(agent, game, llm_log_file_path, prompts_dir=run_config.prompts_dir)
                 for agent in agents.values() if not game.powers[agent.power_name].is_eliminated()
             ]
             if consolidation_tasks:

@@ -1,7 +1,7 @@
 # ai_diplomacy/diary_logic.py
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from .utils import run_llm_and_log, log_llm_response
 
@@ -11,13 +11,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-def _load_prompt_file(filename: str) -> str | None:
+def _load_prompt_file(filename: str, prompts_dir: Optional[str] = None) -> str | None:
     """A local copy of the helper from agent.py to avoid circular imports."""
     import os
     try:
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        prompts_dir = os.path.join(current_dir, 'prompts')
-        filepath = os.path.join(prompts_dir, filename)
+        if prompts_dir:
+            filepath = os.path.join(prompts_dir, filename)
+        else:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            default_prompts_dir = os.path.join(current_dir, 'prompts')
+            filepath = os.path.join(default_prompts_dir, filename)
+
         with open(filepath, 'r', encoding='utf-8') as f:
             return f.read()
     except Exception as e:
@@ -29,6 +33,7 @@ async def run_diary_consolidation(
     game: "Game",
     log_file_path: str,
     entries_to_keep_unsummarized: int = 15,
+    prompts_dir: Optional[str] = None,
 ):
     """
     Consolidate older diary entries while keeping recent ones.
@@ -93,7 +98,7 @@ async def run_diary_consolidation(
         )
         return
 
-    prompt_template = _load_prompt_file("diary_consolidation_prompt.txt")
+    prompt_template = _load_prompt_file("diary_consolidation_prompt.txt", prompts_dir=prompts_dir)
     if not prompt_template:
         logger.error(
             f"[{agent.power_name}] diary_consolidation_prompt.txt missing — aborting"

@@ -44,10 +44,11 @@ class BaseModelClient:
       - get_conversation_reply(power_name, conversation_so_far, game_phase) -> str
     """
 
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, prompts_dir: Optional[str] = None):
         self.model_name = model_name
+        self.prompts_dir = prompts_dir
         # Load a default initially, can be overwritten by set_system_prompt
-        self.system_prompt = load_prompt("system_prompt.txt") 
+        self.system_prompt = load_prompt("system_prompt.txt", prompts_dir=self.prompts_dir) 
         self.max_tokens = 16000  # default unless overridden
 
     def set_system_prompt(self, content: str):
@@ -97,6 +98,7 @@ class BaseModelClient:
             agent_goals=agent_goals,
             agent_relationships=agent_relationships,
             agent_private_diary_str=agent_private_diary_str,
+            prompts_dir=self.prompts_dir,
         )
 
         raw_response = ""
@@ -423,7 +425,7 @@ class BaseModelClient:
         agent_private_diary_str: Optional[str] = None, # Added
     ) -> str:
         
-        instructions = load_prompt("planning_instructions.txt")
+        instructions = load_prompt("planning_instructions.txt", prompts_dir=self.prompts_dir)
 
         context = self.build_context_prompt(
             game,
@@ -434,6 +436,7 @@ class BaseModelClient:
             agent_goals=agent_goals,
             agent_relationships=agent_relationships,
             agent_private_diary=agent_private_diary_str, # Pass diary string
+            prompts_dir=self.prompts_dir,
         )
 
         return context + "\n\n" + instructions
@@ -451,7 +454,7 @@ class BaseModelClient:
         agent_relationships: Optional[Dict[str, str]] = None,
         agent_private_diary_str: Optional[str] = None, # Added
     ) -> str:
-        instructions = load_prompt("conversation_instructions.txt")
+        instructions = load_prompt("conversation_instructions.txt", prompts_dir=self.prompts_dir)
 
         context = build_context_prompt(
             game,
@@ -462,6 +465,7 @@ class BaseModelClient:
             agent_goals=agent_goals,
             agent_relationships=agent_relationships,
             agent_private_diary=agent_private_diary_str, # Pass diary string
+            prompts_dir=self.prompts_dir,
         )
         
         # Get recent messages targeting this power to prioritize responses
@@ -699,7 +703,7 @@ class BaseModelClient:
         """
         logger.info(f"Client generating strategic plan for {power_name}...")
         
-        planning_instructions = load_prompt("planning_instructions.txt")
+        planning_instructions = load_prompt("planning_instructions.txt", prompts_dir=self.prompts_dir)
         if not planning_instructions:
             logger.error("Could not load planning_instructions.txt! Cannot generate plan.")
             return "Error: Planning instructions not found."
@@ -718,6 +722,7 @@ class BaseModelClient:
             agent_goals=agent_goals,
             agent_relationships=agent_relationships,
             agent_private_diary=agent_private_diary_str, # Pass diary string
+            prompts_dir=self.prompts_dir,
         )
 
         full_prompt = f"{context_prompt}\n\n{planning_instructions}"
@@ -772,8 +777,8 @@ class OpenAIClient(BaseModelClient):
     For 'o3-mini', 'gpt-4o', or other OpenAI model calls.
     """
 
-    def __init__(self, model_name: str):
-        super().__init__(model_name)
+    def __init__(self, model_name: str, prompts_dir: Optional[str] = None):
+        super().__init__(model_name, prompts_dir=prompts_dir)
         self.client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
     async def generate_response(self, prompt: str, temperature: float = 0.0, inject_random_seed: bool = True) -> str:
@@ -819,8 +824,8 @@ class ClaudeClient(BaseModelClient):
     For 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', etc.
     """
 
-    def __init__(self, model_name: str):
-        super().__init__(model_name)
+    def __init__(self, model_name: str, prompts_dir: Optional[str] = None):
+        super().__init__(model_name, prompts_dir=prompts_dir)
         self.client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
     async def generate_response(self, prompt: str, temperature: float = 0.0, inject_random_seed: bool = True) -> str:
@@ -861,8 +866,8 @@ class GeminiClient(BaseModelClient):
     For 'gemini-1.5-flash' or other Google Generative AI models.
     """
 
-    def __init__(self, model_name: str):
-        super().__init__(model_name)
+    def __init__(self, model_name: str, prompts_dir: Optional[str] = None):
+        super().__init__(model_name, prompts_dir=prompts_dir)
         # Configure and get the model (corrected initialization)
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
@@ -905,8 +910,8 @@ class DeepSeekClient(BaseModelClient):
     For DeepSeek R1 'deepseek-reasoner'
     """
 
-    def __init__(self, model_name: str):
-        super().__init__(model_name)
+    def __init__(self, model_name: str, prompts_dir: Optional[str] = None):
+        super().__init__(model_name, prompts_dir=prompts_dir)
         self.api_key = os.environ.get("DEEPSEEK_API_KEY")
         self.client = AsyncDeepSeekOpenAI(
             api_key=self.api_key, 
@@ -961,8 +966,8 @@ class OpenAIResponsesClient(BaseModelClient):
     This client makes direct HTTP requests to the v1/responses endpoint.
     """
 
-    def __init__(self, model_name: str):
-        super().__init__(model_name)
+    def __init__(self, model_name: str, prompts_dir: Optional[str] = None):
+        super().__init__(model_name, prompts_dir=prompts_dir)
         self.api_key = os.environ.get("OPENAI_API_KEY")
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required")
@@ -1068,14 +1073,14 @@ class OpenRouterClient(BaseModelClient):
     For OpenRouter models, with default being 'openrouter/quasar-alpha'
     """
 
-    def __init__(self, model_name: str = "openrouter/quasar-alpha"):
+    def __init__(self, model_name: str = "openrouter/quasar-alpha", prompts_dir: Optional[str] = None):
         # Allow specifying just the model identifier or the full path
         if not model_name.startswith("openrouter/") and "/" not in model_name:
             model_name = f"openrouter/{model_name}"
         if model_name.startswith("openrouter-"):
             model_name = model_name.replace("openrouter-", "")
             
-        super().__init__(model_name)
+        super().__init__(model_name, prompts_dir=prompts_dir)
         self.api_key = os.environ.get("OPENROUTER_API_KEY")
         if not self.api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable is required")
@@ -1146,8 +1151,8 @@ class TogetherAIClient(BaseModelClient):
     Model names should be passed without the 'together-' prefix.
     """
 
-    def __init__(self, model_name: str):
-        super().__init__(model_name)  # model_name here is the actual Together AI model identifier
+    def __init__(self, model_name: str, prompts_dir: Optional[str] = None):
+        super().__init__(model_name, prompts_dir=prompts_dir)  # model_name here is the actual Together AI model identifier
         self.api_key = os.environ.get("TOGETHER_API_KEY")
         if not self.api_key:
             raise ValueError("TOGETHER_API_KEY environment variable is required for TogetherAIClient")
@@ -1198,12 +1203,13 @@ class TogetherAIClient(BaseModelClient):
 ##############################################################################
 
 
-def load_model_client(model_id: str) -> BaseModelClient:
+def load_model_client(model_id: str, prompts_dir: Optional[str] = None) -> BaseModelClient:
     """
     Returns the appropriate LLM client for a given model_id string.
     
     Args:
         model_id: The model identifier
+        prompts_dir: Optional path to the prompts directory.
     
     Example usage:
        client = load_model_client("claude-3-5-sonnet-20241022")
@@ -1213,23 +1219,23 @@ def load_model_client(model_id: str) -> BaseModelClient:
     
     # Check for o3-pro model specifically - it needs the Responses API
     if lower_id == "o3-pro":
-        return OpenAIResponsesClient(model_id)
+        return OpenAIResponsesClient(model_id, prompts_dir=prompts_dir)
     # Check for OpenRouter first to handle prefixed models like openrouter-deepseek
     elif model_id.startswith("together-"):
         actual_model_name = model_id.split("together-", 1)[1]
         logger.info(f"Loading TogetherAI client for model: {actual_model_name} (original ID: {model_id})")
-        return TogetherAIClient(actual_model_name)
+        return TogetherAIClient(actual_model_name, prompts_dir=prompts_dir)
     elif "openrouter" in model_id.lower() or "/" in model_id: # More general check for OpenRouterClient(model_id)
-        return OpenRouterClient(model_id)
+        return OpenRouterClient(model_id, prompts_dir=prompts_dir)
     elif "claude" in lower_id:
-        return ClaudeClient(model_id)
+        return ClaudeClient(model_id, prompts_dir=prompts_dir)
     elif "gemini" in lower_id:
-        return GeminiClient(model_id)
+        return GeminiClient(model_id, prompts_dir=prompts_dir)
     elif "deepseek" in lower_id:
-        return DeepSeekClient(model_id)
+        return DeepSeekClient(model_id, prompts_dir=prompts_dir)
     else:
         # Default to OpenAI (for models like o3-mini, gpt-4o, etc.)
-        return OpenAIClient(model_id)
+        return OpenAIClient(model_id, prompts_dir=prompts_dir)
 
 
 ##############################################################################

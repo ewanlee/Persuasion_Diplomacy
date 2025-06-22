@@ -23,6 +23,7 @@ def build_context_prompt(
     agent_goals: Optional[List[str]] = None,
     agent_relationships: Optional[Dict[str, str]] = None,
     agent_private_diary: Optional[str] = None,
+    prompts_dir: Optional[str] = None,
 ) -> str:
     """Builds the detailed context part of the prompt.
 
@@ -35,11 +36,12 @@ def build_context_prompt(
         agent_goals: Optional list of agent's goals.
         agent_relationships: Optional dictionary of agent's relationships with other powers.
         agent_private_diary: Optional string of agent's private diary.
+        prompts_dir: Optional path to the prompts directory.
 
     Returns:
         A string containing the formatted context.
     """
-    context_template = load_prompt("context_prompt.txt")
+    context_template = load_prompt("context_prompt.txt", prompts_dir=prompts_dir)
 
     # === Agent State Debug Logging ===
     if agent_goals:
@@ -112,6 +114,7 @@ def construct_order_generation_prompt(
     agent_goals: Optional[List[str]] = None,
     agent_relationships: Optional[Dict[str, str]] = None,
     agent_private_diary_str: Optional[str] = None,
+    prompts_dir: Optional[str] = None,
 ) -> str:
     """Constructs the final prompt for order generation.
 
@@ -125,13 +128,14 @@ def construct_order_generation_prompt(
         agent_goals: Optional list of agent's goals.
         agent_relationships: Optional dictionary of agent's relationships with other powers.
         agent_private_diary_str: Optional string of agent's private diary.
+        prompts_dir: Optional path to the prompts directory.
 
     Returns:
         A string containing the complete prompt for the LLM.
     """
     # Load prompts
-    _ = load_prompt("few_shot_example.txt") # Loaded but not used, as per original logic
-    instructions = load_prompt("order_instructions.txt")
+    _ = load_prompt("few_shot_example.txt", prompts_dir=prompts_dir) # Loaded but not used, as per original logic
+    instructions = load_prompt("order_instructions.txt", prompts_dir=prompts_dir)
 
     # Build the context prompt
     context = build_context_prompt(
@@ -143,6 +147,7 @@ def construct_order_generation_prompt(
         agent_goals=agent_goals,
         agent_relationships=agent_relationships,
         agent_private_diary=agent_private_diary_str,
+        prompts_dir=prompts_dir,
     )
 
     final_prompt = system_prompt + "\n\n" + context + "\n\n" + instructions
