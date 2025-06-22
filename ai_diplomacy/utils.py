@@ -293,11 +293,14 @@ def normalize_and_compare_orders(
 
 
 # Helper to load prompt text from file relative to the expected 'prompts' dir
-def load_prompt(filename: str) -> str:
+def load_prompt(filename: str, prompts_dir: Optional[str] = None) -> str:
     """Helper to load prompt text from file"""
-    # Assuming execution from the root or that the path resolves correctly
-    # Consider using absolute paths or pkg_resources if needed for robustness
-    prompt_path = os.path.join(os.path.dirname(__file__), 'prompts', filename)
+    if prompts_dir:
+        prompt_path = os.path.join(prompts_dir, filename)
+    else:
+        # Default behavior: relative to this file's location in the 'prompts' subdir
+        prompt_path = os.path.join(os.path.dirname(__file__), 'prompts', filename)
+    
     try:
         with open(prompt_path, "r", encoding='utf-8') as f: # Added encoding
             return f.read().strip()

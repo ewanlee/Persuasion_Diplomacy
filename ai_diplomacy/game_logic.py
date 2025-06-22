@@ -31,16 +31,17 @@ def serialize_agent(agent: DiplomacyAgent) -> dict:
         "private_diary": agent.private_diary,
     }
 
-def deserialize_agent(agent_data: dict) -> DiplomacyAgent:
+def deserialize_agent(agent_data: dict, prompts_dir: Optional[str] = None) -> DiplomacyAgent:
     """Recreates an agent object from a dictionary."""
-    client = load_model_client(agent_data["model_id"])
+    client = load_model_client(agent_data["model_id"], prompts_dir=prompts_dir)
     client.max_tokens = agent_data.get("max_tokens", 16000) # Default for older saves
     
     agent = DiplomacyAgent(
         power_name=agent_data["power_name"],
         client=client,
         initial_goals=agent_data.get("goals", []),
-        initial_relationships=agent_data.get("relationships", None)
+        initial_relationships=agent_data.get("relationships", None),
+        prompts_dir=prompts_dir
     )
     # Restore the diary.
     agent.full_private_diary = agent_data.get("full_private_diary", [])
@@ -179,7 +180,7 @@ def load_game_state(
     run_dir: str,
     game_file_name: str,
     resume_from_phase: Optional[str] = None
-) -> Tuple[Game, Dict[str, DiplomacyAgent], GameHistory, Namespace]:
+) -> Tuple[Game, Dict[str, DiplomacyAgent], GameHistory, Optional[Namespace]]:
     """Loads and reconstructs the game state from a saved game file."""
     game_file_path = os.path.join(run_dir, game_file_name)
     if not os.path.exists(game_file_path):
@@ -189,6 +190,14 @@ def load_game_state(
     with open(game_file_path, 'r') as f:
         saved_game_data = json.load(f)
 
+    # Find the latest config saved in the file
+    run_config = None
+    if saved_game_data.get("phases"):
+        for phase in reversed(saved_game_data["phases"]):
+            if "config" in phase:
+                run_config = Namespace(**phase["config"])
+                logger.info(f"Loaded run configuration from phase {phase['name']}.")
+                break
 
     # If resuming, find the specified phase and truncate the data after it
     if resume_from_phase:
@@ -231,8 +240,6 @@ def load_game_state(
         logger.info("No previous phases found. Initializing fresh agents and history.")
         agents = {} # Will be created by the main loop
         game_history = GameHistory()
-        # No config to load, will use current run's args
-        run_config = None 
     else:
         # We save the game state up to & including the current (uncompleted) phase.
         # So we need to grab the agent state from the previous (completed) phase.
@@ -245,8 +252,9 @@ def load_game_state(
         agents = {}
         if 'state_agents' in last_phase_data:
             logger.info("Rebuilding agents from saved state...")
+            prompts_dir_from_config = run_config.prompts_dir if run_config and hasattr(run_config, 'prompts_dir') else None
             for power_name, agent_data in last_phase_data['state_agents'].items():
-                agents[power_name] = deserialize_agent(agent_data)
+                agents[power_name] = deserialize_agent(agent_data, prompts_dir=prompts_dir_from_config)
             logger.info(f"Rebuilt {len(agents)} agents.")
         else:
             raise ValueError("Cannot resume: 'state_agents' key not found in the last phase of the save file.")
@@ -267,7 +275,7 @@ def load_game_state(
         logger.info("Game history rebuilt.")
 
 
-    return game, agents, game_history
+    return game, agents, game_history, run_config
 
 
 async def initialize_new_game(
@@ -308,12 +316,12 @@ async def initialize_new_game(
     for power_name, model_id in game.power_model_map.items():
         if not game.powers[power_name].is_eliminated():
             try:
-                client = load_model_client(model_id)
+                client = load_model_client(model_id, prompts_dir=args.prompts_dir)
                 client.max_tokens = model_max_tokens[power_name]
-                agent = DiplomacyAgent(power_name=power_name, client=client)
+                agent = DiplomacyAgent(power_name=power_name, client=client, prompts_dir=args.prompts_dir)
                 agents[power_name] = agent
                 logger.info(f"Preparing initialization task for {power_name} with model {model_id}")
-                initialization_tasks.append(initialize_agent_state_ext(agent, game, game_history, llm_log_file_path))
+                initialization_tasks.append(initialize_agent_state_ext(agent, game, game_history, llm_log_file_path, prompts_dir=args.prompts_dir))
             except Exception as e:
                 logger.error(f"Failed to create agent or client for {power_name} with model {model_id}: {e}", exc_info=True)
     

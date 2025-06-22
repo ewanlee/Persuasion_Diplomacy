@@ -22,13 +22,17 @@ ALL_POWERS = frozenset({"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUS
 ALLOWED_RELATIONSHIPS = ["Enemy", "Unfriendly", "Neutral", "Friendly", "Ally"]
 
 # == New: Helper function to load prompt files reliably ==
-def _load_prompt_file(filename: str) -> Optional[str]:
+def _load_prompt_file(filename: str, prompts_dir: Optional[str] = None) -> Optional[str]:
     """Loads a prompt template from the prompts directory."""
     try:
-        # Construct path relative to this file's location
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        prompts_dir = os.path.join(current_dir, 'prompts')
-        filepath = os.path.join(prompts_dir, filename)
+        if prompts_dir:
+            filepath = os.path.join(prompts_dir, filename)
+        else:
+            # Construct path relative to this file's location
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            default_prompts_dir = os.path.join(current_dir, 'prompts')
+            filepath = os.path.join(default_prompts_dir, filename)
+        
         with open(filepath, 'r', encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
@@ -50,6 +54,7 @@ class DiplomacyAgent:
         client: BaseModelClient, 
         initial_goals: Optional[List[str]] = None,
         initial_relationships: Optional[Dict[str, str]] = None,
+        prompts_dir: Optional[str] = None,
     ):
         """
         Initializes the DiplomacyAgent.
@@ -60,12 +65,14 @@ class DiplomacyAgent:
             initial_goals: An optional list of initial strategic goals.
             initial_relationships: An optional dictionary mapping other power names to 
                                      relationship statuses (e.g., 'ALLY', 'ENEMY', 'NEUTRAL').
+            prompts_dir: Optional path to the prompts directory.
         """
         if power_name not in ALL_POWERS:
             raise ValueError(f"Invalid power name: {power_name}. Must be one of {ALL_POWERS}")
 
         self.power_name: str = power_name
         self.client: BaseModelClient = client
+        self.prompts_dir: Optional[str] = prompts_dir
         # Initialize goals as empty list, will be populated by initialize_agent_state
         self.goals: List[str] = initial_goals if initial_goals is not None else [] 
         # Initialize relationships to Neutral if not provided
@@ -85,16 +92,21 @@ class DiplomacyAgent:
         # Get the directory containing the current file (agent.py)
         current_dir = os.path.dirname(os.path.abspath(__file__))
         # Construct path relative to the current file's directory
-        prompts_dir = os.path.join(current_dir, "prompts") 
-        power_prompt_filename = os.path.join(prompts_dir, f"{power_name.lower()}_system_prompt.txt")
-        default_prompt_filename = os.path.join(prompts_dir, "system_prompt.txt")
+        default_prompts_path = os.path.join(current_dir, "prompts") 
+        power_prompt_filename = f"{power_name.lower()}_system_prompt.txt"
+        default_prompt_filename = "system_prompt.txt"
 
-        system_prompt_content = load_prompt(power_prompt_filename)
+        # Use the provided prompts_dir if available, otherwise use the default
+        prompts_path_to_use = self.prompts_dir if self.prompts_dir else default_prompts_path
+        
+        power_prompt_filepath = os.path.join(prompts_path_to_use, power_prompt_filename)
+        default_prompt_filepath = os.path.join(prompts_path_to_use, default_prompt_filename)
+
+        system_prompt_content = load_prompt(power_prompt_filepath, prompts_dir=self.prompts_dir)
 
         if not system_prompt_content:
-            logger.warning(f"Power-specific prompt '{power_prompt_filename}' not found or empty. Loading default system prompt.")
-            # system_prompt_content = load_prompt("system_prompt.txt")
-            system_prompt_content = load_prompt(default_prompt_filename)
+            logger.warning(f"Power-specific prompt '{power_prompt_filepath}' not found or empty. Loading default system prompt.")
+            system_prompt_content = load_prompt(default_prompt_filepath, prompts_dir=self.prompts_dir)
         else:
              logger.info(f"Loaded power-specific system prompt for {power_name}.")
         # ----------------------------------------------------
@@ -416,7 +428,7 @@ class DiplomacyAgent:
 
         try:
             # Load the template file but safely preprocess it first
-            prompt_template_content = _load_prompt_file('negotiation_diary_prompt.txt')
+            prompt_template_content = _load_prompt_file('negotiation_diary_prompt.txt', prompts_dir=self.prompts_dir)
             if not prompt_template_content:
                 logger.error(f"[{self.power_name}] Could not load negotiation_diary_prompt.txt. Skipping diary entry.")
                 success_status = "Failure: Prompt file not loaded"
@@ -611,7 +623,7 @@ class DiplomacyAgent:
         logger.info(f"[{self.power_name}] Generating order diary entry for {game.current_short_phase}...")
         
         # Load the template but we'll use it carefully with string interpolation
-        prompt_template = _load_prompt_file('order_diary_prompt.txt')
+        prompt_template = _load_prompt_file('order_diary_prompt.txt', prompts_dir=self.prompts_dir)
         if not prompt_template:
             logger.error(f"[{self.power_name}] Could not load order_diary_prompt.txt. Skipping diary entry.")
             return
@@ -756,7 +768,7 @@ class DiplomacyAgent:
         logger.info(f"[{self.power_name}] Generating phase result diary entry for {game.current_short_phase}...")
         
         # Load the template
-        prompt_template = _load_prompt_file('phase_result_diary_prompt.txt')
+        prompt_template = _load_prompt_file('phase_result_diary_prompt.txt', prompts_dir=self.prompts_dir)
         if not prompt_template:
             logger.error(f"[{self.power_name}] Could not load phase_result_diary_prompt.txt. Skipping diary entry.")
             return
@@ -859,7 +871,7 @@ class DiplomacyAgent:
 
         try:
             # 1. Construct the prompt using the dedicated state update prompt file
-            prompt_template = _load_prompt_file('state_update_prompt.txt')
+            prompt_template = _load_prompt_file('state_update_prompt.txt', prompts_dir=self.prompts_dir)
             if not prompt_template:
                  logger.error(f"[{power_name}] Could not load state_update_prompt.txt. Skipping state update.")
                  return
@@ -893,6 +905,7 @@ class DiplomacyAgent:
                 agent_goals=self.goals,
                 agent_relationships=self.relationships,
                 agent_private_diary=formatted_diary, # Pass formatted diary
+                prompts_dir=self.prompts_dir,
             )
 
             # Add previous phase summary to the information provided to the LLM

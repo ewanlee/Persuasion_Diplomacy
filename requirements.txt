@@ -17,3 +17,5 @@ anthropic
 google-genai
 json-repair
 together
+matplotlib
+seaborn

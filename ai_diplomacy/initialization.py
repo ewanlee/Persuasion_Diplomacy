@@ -1,6 +1,7 @@
 # ai_diplomacy/initialization.py
 import logging
 import json
+from typing import Optional
 
 # Forward declaration for type hinting, actual imports in function if complex
 if False: # TYPE_CHECKING
@@ -18,7 +19,8 @@ async def initialize_agent_state_ext(
     agent: 'DiplomacyAgent', 
     game: 'Game', 
     game_history: 'GameHistory', 
-    log_file_path: str
+    log_file_path: str,
+    prompts_dir: Optional[str] = None,
 ):
     """Uses the LLM to set initial goals and relationships for the agent."""
     power_name = agent.power_name
@@ -56,7 +58,8 @@ async def initialize_agent_state_ext(
             game_history=game_history, 
             agent_goals=None, 
             agent_relationships=None, 
-            agent_private_diary=formatted_diary, 
+            agent_private_diary=formatted_diary,
+            prompts_dir=prompts_dir,
         )
         full_prompt = initial_prompt + "\n\n" + context
 
