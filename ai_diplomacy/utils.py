@@ -7,6 +7,7 @@ import csv
 from typing import TYPE_CHECKING
 import random
 import string
+import json
 
 # Avoid circular import for type hinting
 if TYPE_CHECKING:
@@ -19,6 +20,31 @@ logger.setLevel(logging.INFO)
 logging.basicConfig(level=logging.INFO)
 
 load_dotenv()
+
+
+def atomic_write_json(data: dict, filepath: str):
+    """Writes a dictionary to a JSON file atomically."""
+    try:
+        # Ensure the directory exists
+        dir_name = os.path.dirname(filepath)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+        
+        # Write to a temporary file in the same directory
+        temp_filepath = f"{filepath}.tmp.{os.getpid()}"
+        with open(temp_filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+        
+        # Atomically rename the temporary file to the final destination
+        os.rename(temp_filepath, filepath)
+    except Exception as e:
+        logger.error(f"Failed to perform atomic write to {filepath}: {e}", exc_info=True)
+        # Clean up temp file if it exists
+        if os.path.exists(temp_filepath):
+            try:
+                os.remove(temp_filepath)
+            except Exception as e_clean:
+                logger.error(f"Failed to clean up temp file {temp_filepath}: {e_clean}")
 
 
 def assign_models_to_powers() -> Dict[str, str]:
