@@ -99,8 +99,7 @@ function createBounceAnimation(unitMesh: THREE.Group, attemptedDestination: Prov
     .to({ x: end.x, y: 10, z: end.z }, config.effectiveAnimationDuration / 2)
     .easing(Easing.Quadratic.Out)
     .onComplete(() => {
-      console.log('bounceOut finished, should now trigger bounceBack');
-      bounceBack.start();
+      console.log('bounceOut finished, should now trigger bounceBack');;
     });
 
   let bounceBack = new Tween(unitMesh.position)
@@ -113,7 +112,7 @@ function createBounceAnimation(unitMesh: THREE.Group, attemptedDestination: Prov
       unitMesh.userData.isAnimating = false;
     });
 
-
+  bounceOut.chain(bounceBack);
   bounceOut.start();
 
   gameState.unitAnimations.push(bounceOut,bounceBack);
