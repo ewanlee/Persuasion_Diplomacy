@@ -10,6 +10,9 @@ import { PowerENUM, ProvinceENUM } from "../types/map";
 import { UnitTypeENUM } from "../types/units";
 import { sineWave, getTimeInSeconds } from "../utils/timing";
 
+
+
+
 function getUnit(unitOrder: UnitOrder, power: string) {
   if (power === undefined) throw new Error("Must pass the power argument, cannot be undefined")
   let posUnits = gameState.unitMeshes.filter((unit) => {
@@ -83,6 +86,42 @@ function createMoveAnimation(unitMesh: THREE.Group, orderDestination: ProvinceEN
   return anim
 }
 
+//Animation for bounce
+
+function createBounceAnimation(unitMesh: THREE.Group, attemptedDestination: ProvinceENUM): Tween {
+  const start = unitMesh.position.clone();
+  const end = getProvincePosition(attemptedDestination);
+  if (!end) throw new Error(`No position found for attempted destination: ${attemptedDestination}`);
+
+  unitMesh.userData.isAnimating = true;
+
+  let bounceOut = new Tween(unitMesh.position)
+    .to({ x: end.x, y: 10, z: end.z }, config.effectiveAnimationDuration / 2)
+    .easing(Easing.Quadratic.Out)
+    .onComplete(() => {
+      console.log('bounceOut finished, should now trigger bounceBack');
+      bounceBack.start();
+    });
+
+  let bounceBack = new Tween(unitMesh.position)
+    .to({ x: start.x, y: 10, z: start.z }, config.effectiveAnimationDuration / 2)
+    .onStart((() => {
+      console.log('bounceBack started');
+    }))
+    .onComplete(() => {
+      unitMesh.position.set(start.x, 10, start.z); 
+      unitMesh.userData.isAnimating = false;
+    });
+
+
+  bounceOut.start();
+
+  gameState.unitAnimations.push(bounceOut,bounceBack);
+  return bounceOut;
+}
+
+
+
 /**
  * Creates animations for unit movements based on orders from the previous phase
  *
@@ -152,8 +191,11 @@ export function createAnimationsForNextPhase() {
           break;
 
         case "bounce":
-          // TODO: implement bounce animation
-          break;
+            if (unitIndex < 0) throw new Error("Unable to find unit for order " + order.raw)
+            if (!order.destination) throw new Error("Bounce order without destination")
+            createBounceAnimation(gameState.unitMeshes[unitIndex], order.destination as ProvinceENUM);
+            break;
+          
         case "hold":
           //TODO: Hold animation, maybe a sheild or something?
           break;
