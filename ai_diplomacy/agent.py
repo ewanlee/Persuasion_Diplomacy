@@ -22,13 +22,17 @@ ALL_POWERS = frozenset({"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUS
 ALLOWED_RELATIONSHIPS = ["Enemy", "Unfriendly", "Neutral", "Friendly", "Ally"]
 
 # == New: Helper function to load prompt files reliably ==
-def _load_prompt_file(filename: str) -> Optional[str]:
+def _load_prompt_file(filename: str, prompts_dir: Optional[str] = None) -> Optional[str]:
     """Loads a prompt template from the prompts directory."""
     try:
-        # Construct path relative to this file's location
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        prompts_dir = os.path.join(current_dir, 'prompts')
-        filepath = os.path.join(prompts_dir, filename)
+        if prompts_dir:
+            filepath = os.path.join(prompts_dir, filename)
+        else:
+            # Construct path relative to this file's location
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            default_prompts_dir = os.path.join(current_dir, 'prompts')
+            filepath = os.path.join(default_prompts_dir, filename)
+        
         with open(filepath, 'r', encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
@@ -50,6 +54,7 @@ class DiplomacyAgent:
         client: BaseModelClient, 
         initial_goals: Optional[List[str]] = None,
         initial_relationships: Optional[Dict[str, str]] = None,
+        prompts_dir: Optional[str] = None,
     ):
         """
         Initializes the DiplomacyAgent.
@@ -60,12 +65,14 @@ class DiplomacyAgent:
             initial_goals: An optional list of initial strategic goals.
             initial_relationships: An optional dictionary mapping other power names to 
                                      relationship statuses (e.g., 'ALLY', 'ENEMY', 'NEUTRAL').
+            prompts_dir: Optional path to the prompts directory.
         """
         if power_name not in ALL_POWERS:
             raise ValueError(f"Invalid power name: {power_name}. Must be one of {ALL_POWERS}")
 
         self.power_name: str = power_name
         self.client: BaseModelClient = client
+        self.prompts_dir: Optional[str] = prompts_dir
         # Initialize goals as empty list, will be populated by initialize_agent_state
         self.goals: List[str] = initial_goals if initial_goals is not None else [] 
         # Initialize relationships to Neutral if not provided
@@ -85,16 +92,21 @@ class DiplomacyAgent:
         # Get the directory containing the current file (agent.py)
         current_dir = os.path.dirname(os.path.abspath(__file__))
         # Construct path relative to the current file's directory
-        prompts_dir = os.path.join(current_dir, "prompts") 
-        power_prompt_filename = os.path.join(prompts_dir, f"{power_name.lower()}_system_prompt.txt")
-        default_prompt_filename = os.path.join(prompts_dir, "system_prompt.txt")
+        default_prompts_path = os.path.join(current_dir, "prompts") 
+        power_prompt_filename = f"{power_name.lower()}_system_prompt.txt"
+        default_prompt_filename = "system_prompt.txt"
 
-        system_prompt_content = load_prompt(power_prompt_filename)
+        # Use the provided prompts_dir if available, otherwise use the default
+        prompts_path_to_use = self.prompts_dir if self.prompts_dir else default_prompts_path
+        
+        power_prompt_filepath = os.path.join(prompts_path_to_use, power_prompt_filename)
+        default_prompt_filepath = os.path.join(prompts_path_to_use, default_prompt_filename)
+
+        system_prompt_content = load_prompt(power_prompt_filepath, prompts_dir=self.prompts_dir)
 
         if not system_prompt_content:
-            logger.warning(f"Power-specific prompt '{power_prompt_filename}' not found or empty. Loading default system prompt.")
-            # system_prompt_content = load_prompt("system_prompt.txt")
-            system_prompt_content = load_prompt(default_prompt_filename)
+            logger.warning(f"Power-specific prompt '{power_prompt_filepath}' not found or empty. Loading default system prompt.")
+            system_prompt_content = load_prompt(default_prompt_filepath, prompts_dir=self.prompts_dir)
         else:
              logger.info(f"Loaded power-specific system prompt for {power_name}.")
         # ----------------------------------------------------
@@ -399,152 +411,9 @@ class DiplomacyAgent:
         logger.info(f"[{self.power_name}] Formatted diary with {1 if consolidated_entry else 0} consolidated and {len(recent_entries)} recent entries. Preview: {formatted_diary[:250]}...")
         return formatted_diary
     
-    async def consolidate_entire_diary(
-        self,
-        game: "Game",
-        log_file_path: str,
-        entries_to_keep_unsummarized: int = 15,
-    ):
-        """
-        Consolidate older diary entries while keeping all entries from the
-        `cutoff_year` onward in full.
-
-        The cutoff year is taken from the N-th most-recent *full* entry
-        (N = entries_to_keep_unsummarized).  Every earlier full entry is
-        summarised; every entry from cutoff_year or later is left verbatim.
-
-        Existing “[CONSOLIDATED HISTORY] …” lines are ignored during both
-        selection and summarisation, so summaries are never nested.
-        """
-        logger.info(
-            f"[{self.power_name}] CONSOLIDATION START — "
-            f"{len(self.full_private_diary)} total full entries"
-        )
-
-        # ----- 1. Collect only the full (non-summary) entries -----
-        full_entries = [
-            e for e in self.full_private_diary
-            if not e.startswith("[CONSOLIDATED HISTORY]")
-        ]
-
-        if len(full_entries) <= entries_to_keep_unsummarized:
-            self.private_diary = list(self.full_private_diary)
-            logger.info(
-                f"[{self.power_name}] ≤ {entries_to_keep_unsummarized} full entries — "
-                "skipping consolidation"
-            )
-            return
-
-        # ----- 2. Determine cutoff_year from the N-th most-recent full entry -----
-        boundary_entry = full_entries[-entries_to_keep_unsummarized]
-        match = re.search(r"\[[SFWRAB]\s*(\d{4})", boundary_entry)
-        if not match:
-            logger.error(
-                f"[{self.power_name}] Could not parse year from boundary entry; "
-                "aborting consolidation"
-            )
-            self.private_diary = list(self.full_private_diary)
-            return
-
-        cutoff_year = int(match.group(1))
-        logger.info(
-            f"[{self.power_name}] Cut-off year for consolidation: {cutoff_year}"
-        )
-
-        # Helper to extract the year (returns None if not found)
-        def _entry_year(entry: str) -> int | None:
-            m = re.search(r"\[[SFWRAB]\s*(\d{4})", entry)
-            return int(m.group(1)) if m else None
-
-        # ----- 3. Partition full entries by year -----
-        entries_to_summarize = [
-            e for e in full_entries
-            if (_entry_year(e) is not None and _entry_year(e) < cutoff_year)
-        ]
-        entries_to_keep = [
-            e for e in full_entries
-            if (_entry_year(e) is None or _entry_year(e) >= cutoff_year)
-        ]
-
-        logger.info(
-            f"[{self.power_name}] Summarising {len(entries_to_summarize)} entries; "
-            f"keeping {len(entries_to_keep)} recent entries verbatim"
-        )
-
-        if not entries_to_summarize:
-            # Safety fallback — should not occur but preserves context
-            self.private_diary = list(self.full_private_diary)
-            logger.warning(
-                f"[{self.power_name}] No eligible entries to summarise; "
-                "context diary left unchanged"
-            )
-            return
-
-        # ----- 4. Build the prompt -----
-        prompt_template = _load_prompt_file("diary_consolidation_prompt.txt")
-        if not prompt_template:
-            logger.error(
-                f"[{self.power_name}] diary_consolidation_prompt.txt missing — aborting"
-            )
-            return
-
-        prompt = prompt_template.format(
-            power_name=self.power_name,
-            full_diary_text="\n\n".join(entries_to_summarize),
-        )
-
-        # ----- 5. Call the LLM -----
-        raw_response = ""
-        success_flag = "FALSE"
-        consolidation_client = None
-        try:
-            consolidation_client = self.client
-
-            raw_response = await run_llm_and_log(
-                client=consolidation_client,
-                prompt=prompt,
-                log_file_path=log_file_path,
-                power_name=self.power_name,
-                phase=game.current_short_phase,
-                response_type="diary_consolidation",
-            )
-
-            consolidated_text = raw_response.strip() if raw_response else ""
-            if not consolidated_text:
-                raise ValueError("LLM returned empty summary")
-
-            new_summary_entry = f"[CONSOLIDATED HISTORY] {consolidated_text}"
-
-            # ----- 6. Rebuild the context diary -----
-            self.private_diary = [new_summary_entry] + entries_to_keep
-            success_flag = "TRUE"
-            logger.info(
-                f"[{self.power_name}] Consolidation complete — "
-                f"{len(self.private_diary)} context entries now"
-            )
-
-        except Exception as exc:
-            logger.error(
-                f"[{self.power_name}] Diary consolidation failed: {exc}", exc_info=True
-            )
-        finally:
-            # Always log the exchange
-            log_llm_response(
-                log_file_path=log_file_path,
-                model_name=(
-                    consolidation_client.model_name
-                    if consolidation_client is not None
-                    else self.client.model_name
-                ),
-                power_name=self.power_name,
-                phase=game.current_short_phase,
-                response_type="diary_consolidation",
-                raw_input_prompt=prompt,
-                raw_response=raw_response,
-                success=success_flag,
-            )
-
-
+    # The consolidate_entire_diary method has been moved to ai_diplomacy/diary_logic.py
+    # to improve modularity and avoid circular dependencies.
+    # It is now called as `run_diary_consolidation(agent, game, ...)` from the main game loop.
 
     async def generate_negotiation_diary_entry(self, game: 'Game', game_history: GameHistory, log_file_path: str):
         """
@@ -559,7 +428,7 @@ class DiplomacyAgent:
 
         try:
             # Load the template file but safely preprocess it first
-            prompt_template_content = _load_prompt_file('negotiation_diary_prompt.txt')
+            prompt_template_content = _load_prompt_file('negotiation_diary_prompt.txt', prompts_dir=self.prompts_dir)
             if not prompt_template_content:
                 logger.error(f"[{self.power_name}] Could not load negotiation_diary_prompt.txt. Skipping diary entry.")
                 success_status = "Failure: Prompt file not loaded"
@@ -754,7 +623,7 @@ class DiplomacyAgent:
         logger.info(f"[{self.power_name}] Generating order diary entry for {game.current_short_phase}...")
         
         # Load the template but we'll use it carefully with string interpolation
-        prompt_template = _load_prompt_file('order_diary_prompt.txt')
+        prompt_template = _load_prompt_file('order_diary_prompt.txt', prompts_dir=self.prompts_dir)
         if not prompt_template:
             logger.error(f"[{self.power_name}] Could not load order_diary_prompt.txt. Skipping diary entry.")
             return
@@ -899,7 +768,7 @@ class DiplomacyAgent:
         logger.info(f"[{self.power_name}] Generating phase result diary entry for {game.current_short_phase}...")
         
         # Load the template
-        prompt_template = _load_prompt_file('phase_result_diary_prompt.txt')
+        prompt_template = _load_prompt_file('phase_result_diary_prompt.txt', prompts_dir=self.prompts_dir)
         if not prompt_template:
             logger.error(f"[{self.power_name}] Could not load phase_result_diary_prompt.txt. Skipping diary entry.")
             return
@@ -1002,7 +871,7 @@ class DiplomacyAgent:
 
         try:
             # 1. Construct the prompt using the dedicated state update prompt file
-            prompt_template = _load_prompt_file('state_update_prompt.txt')
+            prompt_template = _load_prompt_file('state_update_prompt.txt', prompts_dir=self.prompts_dir)
             if not prompt_template:
                  logger.error(f"[{power_name}] Could not load state_update_prompt.txt. Skipping state update.")
                  return
@@ -1036,6 +905,7 @@ class DiplomacyAgent:
                 agent_goals=self.goals,
                 agent_relationships=self.relationships,
                 agent_private_diary=formatted_diary, # Pass formatted diary
+                prompts_dir=self.prompts_dir,
             )
 
             # Add previous phase summary to the information provided to the LLM

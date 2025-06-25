@@ -1,4 +1,5 @@
 # AI Diplomacy: LLM-Powered Strategic Gameplay
+
 Created by Alex Duffy @Alx-Ai & Tyler Marques @Tylermarques
 
 ## Overview
@@ -8,31 +9,37 @@ This repository extends the original [Diplomacy](https://github.com/diplomacy/di
 ## Key Features
 
 ### 🤖 Stateful AI Agents
+
 Each power is represented by a `DiplomacyAgent` with:
+
 - **Dynamic Goals**: Strategic objectives that evolve based on game events
 - **Relationship Tracking**: Maintains relationships (Enemy/Unfriendly/Neutral/Friendly/Ally) with other powers
 - **Memory System**: Dual-layer memory with structured diary entries and consolidation
 - **Personality**: Power-specific system prompts shape each agent's diplomatic style
 
 ### 💬 Rich Negotiations
+
 - Multi-round message exchanges (private and global)
 - Relationship-aware communication strategies
 - Message history tracking and analysis
 - Detection of ignored messages and non-responsive powers
 
 ### 🎯 Strategic Order Generation
+
 - BFS pathfinding for movement analysis
 - Context-aware order selection with nearest threats/opportunities
 - Fallback logic for robustness
 - Support for multiple LLM providers (OpenAI, Claude, Gemini, DeepSeek, OpenRouter)
 
 ### 📊 Advanced Game Analysis
+
 - Custom phase summaries with success/failure categorization
 - Betrayal detection through order/negotiation comparison
 - Strategic planning phases for high-level directives
 - Comprehensive logging of all LLM interactions
 
 ### 🧠 Memory Management
+
 - **Private Diary**: Structured, phase-prefixed entries for LLM context
   - Negotiation summaries with relationship updates
   - Order reasoning and strategic justifications
@@ -219,6 +226,7 @@ graph TB
 #### Prompt Templates
 
 The `ai_diplomacy/prompts/` directory contains customizable templates:
+
 - Power-specific system prompts (e.g., `france_system_prompt.txt`)
 - Task-specific instructions (`order_instructions.txt`, `conversation_instructions.txt`)
 - Diary generation prompts for different game events
@@ -236,16 +244,95 @@ python lm_game.py --max_year 1910 --planning_phase --num_negotiation_rounds 2
 # Custom model assignment (order: AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY)
 python lm_game.py --models "claude-3-5-sonnet-20241022,gpt-4o,claude-3-5-sonnet-20241022,gpt-4o,claude-3-5-sonnet-20241022,gpt-4o,claude-3-5-sonnet-20241022"
 
-# Output to specific file
-python lm_game.py --output results/my_game.json
-
 # Run until game completion or specific year
 python lm_game.py --num_negotiation_rounds 2 --planning_phase
+
+# Write all artefacts to a chosen directory (auto-resumes if it already exists)
+python lm_game.py --run_dir results/game_run_001
+
+# Resume an interrupted game from a specific phase
+python lm_game.py --run_dir results/game_run_001 --resume_from_phase S1902M
+
+# Critical-state analysis: resume from an existing run but save new results elsewhere
+python lm_game.py \
+  --run_dir results/game_run_001 \
+  --critical_state_analysis_dir results/critical_analysis_001 \
+  --resume_from_phase F1903M
+
+# End the simulation after a particular phase regardless of remaining years
+python lm_game.py --run_dir results/game_run_002 --end_at_phase F1905M
+
+# Set the global max_tokens generation limit
+python lm_game.py --run_dir results/game_run_003 --max_tokens 8000
+
+# Per-model token limits (AU,EN,FR,GE,IT,RU,TR)
+python lm_game.py --run_dir results/game_run_004 \
+  --max_tokens_per_model "8000,8000,16000,8000,8000,16000,8000"
+
+# Use a custom prompts directory
+python lm_game.py --run_dir results/game_run_005 --prompts_dir ./prompts/my_variants
 ```
+
+### Running Batch Experiments with **`experiment_runner.py`**
+
+`experiment_runner.py` is a lightweight orchestrator: it spins up many `lm_game.py` runs in parallel, gathers their artefacts under one *experiment directory*, and then executes the analysis modules you specify.
+All flags that belong to **`lm_game.py`** can be passed straight through; the runner validates them and forwards them unchanged to every game instance.
+
+---
+
+#### Examples
+
+```bash
+# Run 10 independent games (iterations) in parallel, using a custom prompts dir
+# and a single model (GPT-4o) for all seven powers.
+python3 experiment_runner.py \
+    --experiment_dir "results/exp001" \
+    --iterations 10 \
+    --parallel 10 \
+    --max_year 1905 \
+    --num_negotiation_rounds 0 \
+    --prompts_dir "ai_diplomacy/prompts" \
+    --models "gpt-4o,gpt-4o,gpt-4o,gpt-4o,gpt-4o,gpt-4o,gpt-4o"
+
+
+# Critical-state analysis: resume every run from W1901A (taken from an existing
+# base run) and stop after S1902M.  Two analysis modules will be executed:
+#  • summary         → aggregated results & scores
+#  • critical_state  → before/after snapshots around the critical phase
+python3 experiment_runner.py \
+    --experiment_dir "results/exp002" \
+    --iterations 10 \
+    --parallel 10 \
+    --resume_from_phase W1901A \
+    --end_at_phase S1902M \
+    --num_negotiation_rounds 0 \
+    --critical_state_base_run "results/test1" \
+    --prompts_dir "ai_diplomacy/prompts" \
+    --analysis_modules "summary,critical_state" \
+    --models "gpt-4o,gpt-4o,gpt-4o,gpt-4o,gpt-4o,gpt-4o,gpt-4o"
+```
+
+*(Any other `lm_game.py` flags—`--planning_phase`, `--max_tokens`, etc.—can be added exactly where you’d use them on a single-game run.)*
+
+---
+
+#### Experiment-runner–specific arguments
+
+| Flag                              | Type / Default             | Description                                                                                                                                                                              |
+| --------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--experiment_dir` **(required)** | `Path`                     | Root folder for the experiment; sub-folders `runs/` and `analysis/` are managed automatically. Re-running with the same directory will **resume** existing runs and regenerate analysis. |
+| `--iterations`                    | `int`, default `1`         | How many individual games to launch for this experiment.                                                                                                                                 |
+| `--parallel`                      | `int`, default `1`         | Max number of games to execute concurrently (uses a process pool).                                                                                                                       |
+| `--analysis_modules`              | `str`, default `"summary"` | Comma-separated list of analysis modules to run after all games finish. Modules are imported from `experiment_runner.analysis.<name>` and must provide `run(experiment_dir, ctx)`.       |
+| `--critical_state_base_run`       | `Path`, optional           | Path to an **existing** `run_dir` produced by a previous `lm_game` run. Each iteration resumes from that snapshot; new artefacts are written under the current `experiment_dir`.         |
+| `--seed_base`                     | `int`, default `42`        | Base random seed. Run *ɪ* receives seed = `seed_base + ɪ`, enabling reproducible batches.                                                                                                |
+
+*(All other command-line flags belong to `lm_game.py` and are forwarded unchanged.)*
 
 ### Environment Setup
 
 Create a `.env` file with your API keys:
+
 ```
 OPENAI_API_KEY=your_key_here
 ANTHROPIC_API_KEY=your_key_here
@@ -257,6 +344,7 @@ OPENROUTER_API_KEY=your_key_here
 ### Model Configuration
 
 Models can be assigned to powers in `ai_diplomacy/utils.py`:
+
 ```python
 def assign_models_to_powers() -> Dict[str, str]:
     return {
@@ -271,6 +359,7 @@ def assign_models_to_powers() -> Dict[str, str]:
 ```
 
 Supported models include:
+
 - OpenAI: `gpt-4o`, `gpt-4.1`, `o3`, `o4-mini`
 - Anthropic: `claude-3-5-sonnet-20241022`, `claude-opus-4-20250514`
 - Google: `gemini-2.0-flash`, `gemini-2.5-pro-preview`
@@ -279,6 +368,7 @@ Supported models include:
 ### Game Output and Analysis
 
 Games are saved to the `results/` directory with timestamps. Each game folder contains:
+
 - `lmvsgame.json` - Complete game data including phase summaries and agent relationships
 - `overview.jsonl` - Error statistics and model assignments
 - `game_manifesto.txt` - Strategic directives from planning phases
@@ -286,6 +376,7 @@ Games are saved to the `results/` directory with timestamps. Each game folder co
 - `llm_responses.csv` - Complete log of all LLM interactions
 
 The game JSON includes special fields for AI analysis:
+
 - `phase_summaries` - Categorized move results for each phase
 - `agent_relationships` - Diplomatic standings at each phase
 - `final_agent_states` - End-game goals and relationships
@@ -294,28 +385,31 @@ The game JSON includes special fields for AI analysis:
 
 For detailed analysis of LLM interactions and order success rates, a two-step pipeline is used:
 
-1.  **Convert CSV to RL JSON**:
+1. **Convert CSV to RL JSON**:
     The `csv_to_rl_json.py` script processes `llm_responses.csv` files, typically found in game-specific subdirectories ending with "FULL_GAME" (e.g., `results/20250524_..._FULL_GAME/`). It converts this raw interaction data into a JSON format suitable for Reinforcement Learning (RL) analysis.
 
     To process all relevant CSVs in batch:
+
     ```bash
     python csv_to_rl_json.py --scan_dir results/
     ```
+
     This command scans the `results/` directory for "FULL_GAME" subfolders, converts their `llm_responses.csv` files, and outputs all generated `*_rl.json` files into the `results/json/` directory.
 
-2.  **Analyze RL JSON Files**:
+2. **Analyze RL JSON Files**:
     The `analyze_rl_json.py` script then analyzes the JSON files generated in the previous step. It aggregates statistics on successful and failed convoy and support orders, categorized by model.
 
     To run the analysis:
+
     ```bash
     python analyze_rl_json.py results/json/
     ```
+
     This command processes all `*_rl.json` files in the `results/json/` directory and generates two reports in the project's root directory:
     - `analysis_summary.txt`: A clean summary of order statistics.
     - `analysis_summary_debug.txt`: A detailed report including unique 'success' field values and other debug information.
 
 This pipeline allows for a comprehensive understanding of LLM performance in generating valid and successful game orders.
-
 
 ### Post-Game Analysis Tools
 
@@ -335,6 +429,7 @@ python analyze_game_moments.py results/game_folder --model claude-3-5-sonnet-202
 ```
 
 The analysis identifies:
+
 - **Betrayals**: When powers explicitly promise one action but take contradictory action
 - **Collaborations**: Successfully coordinated actions between powers
 - **Playing Both Sides**: Powers making conflicting promises to different parties
@@ -342,6 +437,7 @@ The analysis identifies:
 - **Strategic Blunders**: Major mistakes that significantly weaken a position
 
 Analysis outputs include:
+
 - **Markdown Report** (`game_moments/[game]_report_[timestamp].md`)
   - AI-generated narrative of the entire game
   - Summary statistics (betrayals, collaborations, etc.)
@@ -354,6 +450,7 @@ Analysis outputs include:
   - Raw lie detection data for further analysis
 
 Example output snippet:
+
 ```markdown
 ## Power Models
 - **TURKEY**: o3
@@ -373,11 +470,13 @@ Example output snippet:
 #### Diplomatic Lie Detection
 
 The analysis system can detect lies by comparing:
+
 1. **Messages**: What powers promise to each other
 2. **Private Diaries**: What powers privately plan (from negotiation_diary entries)
 3. **Actual Orders**: What they actually do
 
 Lies are classified as:
+
 - **Intentional**: Diary shows planned deception (e.g., "mislead them", "while actually...")
 - **Unintentional**: No evidence of planned deception (likely misunderstandings)
 
@@ -396,6 +495,7 @@ npm run dev
 ```
 
 Features:
+
 - 3D map with unit movements and battles
 - Phase-by-phase playback controls
 - Chat window showing diplomatic messages
@@ -407,11 +507,13 @@ Features:
 Analysis of hundreds of AI games reveals interesting patterns:
 
 #### Model Performance Characteristics
+
 - **Invalid Move Rates**: Some models (e.g., o3) generate more invalid moves but play aggressively
 - **Deception Patterns**: Models vary dramatically in honesty (0-100% intentional lie rates)
 - **Strategic Styles**: From defensive/honest to aggressive/deceptive playstyles
 
 #### Common Strategic Patterns
+
 - **Opening Gambits**: RT Juggernaut (Russia-Turkey), Western Triple, Lepanto
 - **Mid-game Dynamics**: Stab timing, alliance shifts, convoy operations
 - **Endgame Challenges**: Stalemate lines, forced draws, kingmaking
@@ -429,7 +531,6 @@ Analysis of hundreds of AI games reveals interesting patterns:
 
 ---
 
-
 <p align="center">
   <img width="500" src="docs/images/map_overview.png" alt="Diplomacy Map Overview">
 </p>
@@ -443,6 +544,7 @@ The complete documentation is available at [diplomacy.readthedocs.io](https://di
 ### 1. Strategic Moment Analysis (`analyze_game_moments.py`)
 
 Comprehensive analysis of game dynamics:
+
 ```bash
 python analyze_game_moments.py results/game_folder [options]
 
@@ -457,6 +559,7 @@ Options:
 ### 2. Focused Lie Detection (`analyze_lies_focused.py`)
 
 Detailed analysis of diplomatic deception:
+
 ```bash
 python analyze_lies_focused.py results/game_folder [--output report.md]
 ```
@@ -464,6 +567,7 @@ python analyze_lies_focused.py results/game_folder [--output report.md]
 ### 3. Game Results Statistics (`analyze_game_results.py`)
 
 Aggregates win/loss statistics across all completed games:
+
 ```bash
 python analyze_game_results.py
 # Creates model_power_statistics.csv
@@ -474,6 +578,7 @@ Analyzes all `*_FULL_GAME` folders to show how many times each model played as e
 ### 4. Game Visualization (`ai_animation/`)
 
 Interactive 3D visualization of games:
+
 ```bash
 cd ai_animation
 npm install
@@ -485,13 +590,23 @@ npm run dev
 
 ### Installation
 
-The latest version of the package can be installed with:
+This project uses [uv](https://github.com/astral-sh/uv) for Python dependency management.
 
-```python3
-pip install diplomacy
+#### Setup Project Dependencies
+
+```bash
+# Clone the repository
+git clone https://github.com/your-repo/AI_Diplomacy.git
+cd AI_Diplomacy
+
+# Install dependencies and create virtual environment
+uv sync
+
+# Activate the virtual environment
+source .venv/bin/activate  # On Unix/macOS
+# or
+.venv\Scripts\activate     # On Windows
 ```
-
-The package is compatible with Python 3.5, 3.6, and 3.7.
 
 ### Running a game
 
@@ -561,7 +676,7 @@ npm start
 python -m diplomacy.server.run
 ```
 
-The web interface will be accessible at http://localhost:3000.
+The web interface will be accessible at <http://localhost:3000>.
 
 To login, users can use admin/password or username/password. Additional users can be created by logging in with a username that does not exist in the database.
 
@@ -572,7 +687,6 @@ To login, users can use admin/password or username/password. Additional users ca
 It is possible to visualize a game by using the "Load a game from disk" menu on the top-right corner of the web interface.
 
 ![](docs/images/visualize_game.png)
-
 
 ## Network Game
 
