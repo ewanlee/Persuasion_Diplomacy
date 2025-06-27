@@ -32,7 +32,7 @@ async def run_diary_consolidation(
     agent: 'DiplomacyAgent',
     game: "Game",
     log_file_path: str,
-    entries_to_keep_unsummarized: int = 15,
+    entries_to_keep_unsummarized: int = 6,
     prompts_dir: Optional[str] = None,
 ):
     """

@@ -294,20 +294,35 @@ def normalize_and_compare_orders(
 
 # Helper to load prompt text from file relative to the expected 'prompts' dir
 def load_prompt(filename: str, prompts_dir: Optional[str] = None) -> str:
-    """Helper to load prompt text from file"""
-    if prompts_dir:
+    """
+    Return the contents of *filename* while never joining paths twice.
+
+    Logic
+    -----
+    1. If *filename* is absolute         → use it directly.
+    2. Elif *filename* already contains a path component (e.g. 'x/y.txt')
+       → treat it as a relative path and use it directly.
+    3. Elif *prompts_dir* is provided    → join prompts_dir + filename.
+    4. Otherwise                         → join the package’s default prompts dir.
+    """
+    if os.path.isabs(filename):                    # rule 1
+        prompt_path = filename
+    elif os.path.dirname(filename):                # rule 2  (has slash)
+        prompt_path = filename                     # relative but already complete
+    elif prompts_dir:                              # rule 3
         prompt_path = os.path.join(prompts_dir, filename)
-    else:
-        # Default behavior: relative to this file's location in the 'prompts' subdir
-        prompt_path = os.path.join(os.path.dirname(__file__), 'prompts', filename)
-    
+    else:                                          # rule 4
+        default_dir = os.path.join(os.path.dirname(__file__), "prompts")
+        prompt_path = os.path.join(default_dir, filename)
+
     try:
-        with open(prompt_path, "r", encoding='utf-8') as f: # Added encoding
-            return f.read().strip()
+        with open(prompt_path, "r", encoding="utf-8") as fh:
+            return fh.read().strip()
     except FileNotFoundError:
         logger.error(f"Prompt file not found: {prompt_path}")
-        # Return an empty string or raise an error, depending on desired handling
         return ""
+
+
 
 
 # == New LLM Response Logging Function ==

@@ -521,6 +521,7 @@ class StatisticalGameAnalyzer:
         """Extract game-level features (placeholder for future implementation)."""
         
         game_features = []
+        game_scores = self._compute_game_scores(game_data)
         
         for power in self.powers:
             features = {
@@ -568,6 +569,8 @@ class StatisticalGameAnalyzer:
                 'overall_success_rate_percentage': 0.0,
                 
             }
+
+            features['game_score'] = game_scores.get(power)
             
             # === CALCULATE FINAL STATE METRICS ===
             if game_data['phases']:
@@ -902,6 +905,88 @@ class StatisticalGameAnalyzer:
             return territory
         return unit_str
     
+    # ───────────────── Diplobench style game score ──────────────────
+    @staticmethod
+    def _year_from_phase(name: str) -> int | None:
+        """Return the 4-digit year embedded in a phase name such as 'F1903M'."""
+        m = re.search(r'(\d{4})', name)
+        return int(m.group(1)) if m else None
+
+
+    def _phase_year(self, phases, idx: int) -> int | None:
+        """
+        Like _year_from_phase but walks backward if a phase itself has no year
+        (e.g. 'COMPLETED').  Returns None if nothing is found.
+        """
+        for j in range(idx, -1, -1):
+            y = self._year_from_phase(phases[j]["name"])
+            if y is not None:
+                return y
+        return None
+
+
+    def _compute_game_scores(self, game_data: dict) -> dict[str, int]:
+        """
+        Return {power → game_score} using the Diplobench scheme.
+
+            max_turns = number of *years* actually played
+            solo winner   → max_turns + 17 + (max_turns − win_turn)
+            full-length survivor (no solo) → max_turns + final_SCs
+            everyone else → elimination_turn   (or win_turn if someone else solos)
+        """
+        phases = game_data.get("phases", [])
+        if not phases:
+            return {}
+
+        # years played
+        years = [self._year_from_phase(p["name"]) for p in phases if self._year_from_phase(p["name"]) is not None]
+        if not years:
+            return {}
+        start_year, last_year = years[0], years[-1]
+        max_turns = last_year - start_year + 1
+
+        # solo winner?
+        solo_winner = None
+        win_turn = None
+        last_state = phases[-1]["state"]
+        for pwr, scs in last_state.get("centers", {}).items():
+            if len(scs) >= 18:
+                solo_winner = pwr
+                # first phase in which 18+ SCs were reached
+                for idx in range(len(phases) - 1, -1, -1):
+                    if len(phases[idx]["state"]["centers"].get(pwr, [])) >= 18:
+                        yr = self._phase_year(phases, idx)
+                        if yr is not None:
+                            win_turn = yr - start_year + 1
+                        break
+                break
+
+        # elimination turn for every power
+        elim_turn: dict[str, int | None] = {p: None for p in self.DIPLOMACY_POWERS}
+        for idx, ph in enumerate(phases):
+            yr = self._phase_year(phases, idx)
+            if yr is None:
+                continue
+            turn = yr - start_year + 1
+            for pwr in elim_turn:
+                if elim_turn[pwr] is None and not ph["state"]["centers"].get(pwr):
+                    elim_turn[pwr] = turn
+
+        scores: dict[str, int] = {}
+        for pwr in elim_turn:
+            if pwr == solo_winner:
+                scores[pwr] = max_turns + 17 + (max_turns - (win_turn or max_turns))
+            elif solo_winner is not None:            # somebody else soloed
+                scores[pwr] = win_turn or max_turns
+            else:                                    # no solo
+                if elim_turn[pwr] is None:           # survived the distance
+                    final_scs = len(last_state.get("centers", {}).get(pwr, []))
+                    scores[pwr] = max_turns + final_scs
+                else:                                # eliminated earlier
+                    scores[pwr] = elim_turn[pwr]
+        return scores
+
+    
     def _load_csv_as_dicts(self, csv_path: str) -> List[dict]:
         """Load CSV file as list of dictionaries."""
         data = []
@@ -1034,7 +1119,10 @@ class StatisticalGameAnalyzer:
             'avg_military_units_per_phase',
             'percent_messages_to_allies_overall',
             'percent_messages_to_enemies_overall',
-            'percent_global_vs_private_overall'
+            'percent_global_vs_private_overall',
+
+            # === Diplobench style single scalar game score ===
+            'game_score',
         ]
         
         # Ensure all actual fields are included
