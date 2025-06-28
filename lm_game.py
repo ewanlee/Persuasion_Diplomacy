@@ -313,18 +313,30 @@ async def main():
         
         active_powers = [p for p, a in agents.items() if not game.powers[p].is_eliminated()]
         order_power_names = [p for p in active_powers if gather_possible_orders(game, p)]
+        submitted_orders_this_phase = defaultdict(list)
 
         for i, result in enumerate(order_results):
             p_name = order_power_names[i]
-            if isinstance(result, Exception):
-                logger.error(f"Error getting orders for {p_name}: {result}", exc_info=result)
-                game.set_orders(p_name, [])
-            else:
-                orders = result
-                game.set_orders(p_name, orders)
-                if orders:
-                    await agents[p_name].generate_order_diary_entry(game, orders, llm_log_file_path)
 
+            if isinstance(result, Exception):
+                logger.error("Error getting orders for %s: %s", p_name, result, exc_info=result)
+                valid, invalid = [], []
+            else:
+                valid   = result.get("valid", [])
+                invalid = result.get("invalid", [])
+
+            # what the engine will actually execute
+            game.set_orders(p_name, valid)
+
+            # what we record for prompt/history purposes
+            submitted_orders_this_phase[p_name] = valid + invalid
+
+            # optional: diary entry only for the orders we tried to submit
+            if valid or invalid:
+                await agents[p_name].generate_order_diary_entry(
+                    game, valid + invalid, llm_log_file_path
+                )
+                
         # --- 4d. Process Phase ---
         completed_phase = current_phase
         game.process()
@@ -333,6 +345,25 @@ async def main():
             logger.info(f"{power_name}: {power.centers}")
 
         # --- 4e. Post-Processing and State Updates ---
+        phase_history_from_game = game.get_phase_history()
+        if phase_history_from_game:
+            last_phase_from_game = phase_history_from_game[-1]
+            if last_phase_from_game.name == completed_phase:
+                phase_obj_in_my_history = game_history._get_phase(completed_phase)
+                if phase_obj_in_my_history:
+                    # Store the orders the agents generated
+                    phase_obj_in_my_history.submitted_orders_by_power = submitted_orders_this_phase
+                    # Store the orders the engine actually accepted
+                    phase_obj_in_my_history.orders_by_power = last_phase_from_game.orders
+                    
+                    # Store the results for the accepted orders
+                    converted_results = defaultdict(list)
+                    if last_phase_from_game.results:
+                        for pwr, res_list in last_phase_from_game.results.items():
+                            converted_results[pwr] = [[res] for res in res_list]
+                    phase_obj_in_my_history.results_by_power = converted_results
+                    logger.debug(f"Populated submitted/accepted order and result history for phase {completed_phase}.")
+
         phase_summary = game.phase_summaries.get(current_phase, "(Summary not generated)")
         all_orders_this_phase = game.order_history.get(current_short_phase, {})
         

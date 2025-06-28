@@ -13,6 +13,9 @@ Relationships: {agent_relationships}
 RECENT PRIVATE DIARY ENTRIES (Your inner thoughts and plans):
 {agent_private_diary}
 
+ORDER HISTORY
+{order_history}
+
 GAME MAP
 Unit Locations:
 {all_unit_locations}

@@ -102,110 +102,100 @@ def gather_possible_orders(game: Game, power_name: str) -> Dict[str, List[str]]:
 
 async def get_valid_orders(
     game: Game,
-    client, # This is the BaseModelClient instance
+    client,                       # BaseModelClient instance
     board_state,
     power_name: str,
     possible_orders: Dict[str, List[str]],
-    game_history, # This is GameHistory instance
-    model_error_stats: Dict[str, Dict[str, int]],
-    agent_goals: Optional[List[str]] = None,
-    agent_relationships: Optional[Dict[str, str]] = None,
-    agent_private_diary_str: Optional[str] = None, # Added new parameter
+    game_history,
+    model_error_stats,
+    agent_goals=None,
+    agent_relationships=None,
+    agent_private_diary_str=None,
     log_file_path: str = None,
     phase: str = None,
-) -> List[str]:
+) -> Dict[str, List[str]]:
     """
-    Tries up to 'max_retries' to generate and validate orders.
-    If invalid, we append the error feedback to the conversation
-    context for the next retry. If still invalid, return fallback.
+    Generates orders with the LLM, validates them by round-tripping through the
+    engine, and returns **both** the accepted and rejected orders so the caller
+    can record invalid attempts.
+
+    Returns
+    -------
+    dict : { "valid": [...], "invalid": [...] }
     """
 
-    # Ask the LLM for orders
-    orders = await client.get_orders(
+    # ── 1. Ask the model ───────────────────────────────────────
+    raw_orders = await client.get_orders(
         game=game,
         board_state=board_state,
         power_name=power_name,
         possible_orders=possible_orders,
-        conversation_text=game_history, # Pass GameHistory instance
+        conversation_text=game_history,
         model_error_stats=model_error_stats,
         agent_goals=agent_goals,
         agent_relationships=agent_relationships,
-        agent_private_diary_str=agent_private_diary_str, # Pass the diary string
+        agent_private_diary_str=agent_private_diary_str,
         log_file_path=log_file_path,
         phase=phase,
     )
-    
-    # Initialize list to track invalid order information
-    invalid_info = []
-    
-    # Validate each order
-    all_valid = True
-    valid_orders = []
-    
-    if not isinstance(orders, list): # Ensure orders is a list before iterating
-        logger.warning(f"[{power_name}] Orders received from LLM is not a list: {orders}. Using fallback.")
-        model_error_stats[client.model_name]["order_decoding_errors"] += 1 # Use client.model_name
-        return client.fallback_orders(possible_orders)
 
-    for move in orders:
-        # Skip empty orders
-        if not move or move.strip() == "":
-            continue
-            
-        # Handle special case for WAIVE
-        if move.upper() == "WAIVE":
-            valid_orders.append(move)
-            continue
-            
-        # Example move: "A PAR H" -> unit="A PAR", order_part="H"
-        tokens = move.split(" ", 2)
-        if len(tokens) < 3:
-            invalid_info.append(f"Order '{move}' is malformed; expected 'A PAR H' style.")
-            all_valid = False
-            continue
-            
-        unit = " ".join(tokens[:2])  # e.g. "A PAR"
-        order_part = tokens[2]  # e.g. "H" or "S A MAR"
+    invalid_info: list[str] = []
+    valid:   list[str] = []
+    invalid: list[str] = []
 
-        # Use the internal game validation method
-        if order_part == "B": # Build orders
-            validity = 1  # hack because game._valid_order doesn't support 'B'
-        elif order_part == "D": # Disband orders
-             # Check if the unit is actually one of the power's units
-            if unit in game.powers[power_name].units:
-                validity = 1 # Simple check, engine handles full validation
-            else:
-                validity = 0
-        else: # Movement, Support, Hold, Convoy, Retreat
-            try:
-                validity = game._valid_order(
-                    game.powers[power_name], unit, order_part, report=1
-                )
-            except Exception as e:
-                logger.warning(f"Error validating order '{move}': {e}")
-                invalid_info.append(f"Order '{move}' caused an error: {e}")
-                validity = 0
-                all_valid = False
-
-        if validity == 1:
-            valid_orders.append(move)
-        else:
-            invalid_info.append(f"Order '{move}' is invalid for {power_name}")
-            all_valid = False
-    
-    # Log validation results
-    if invalid_info:
-        logger.debug(f"[{power_name}] Invalid orders: {', '.join(invalid_info)}")
-    
-    if all_valid and valid_orders:
-        logger.debug(f"[{power_name}] All orders valid: {valid_orders}")
-        return valid_orders
-    else:
-        logger.debug(f"[{power_name}] Some orders invalid, using fallback.")
-        # Use client.model_name for stats key, as power_name might not be unique if multiple agents use same model
+    # ── 2. Type check ──────────────────────────────────────────
+    if not isinstance(raw_orders, list):
+        logger.warning("[%s] Orders received from LLM are not a list: %s. Using fallback.",
+                       power_name, raw_orders)
         model_error_stats[client.model_name]["order_decoding_errors"] += 1
+        return {"valid": client.fallback_orders(possible_orders), "invalid": []}
+
+    # ── 3. Round-trip validation with engine ───────────────────
+    CODE_TO_ENGINE = {
+        "AUT": "AUSTRIA", "ENG": "ENGLAND", "FRA": "FRANCE",
+        "GER": "GERMANY", "ITA": "ITALY",  "RUS": "RUSSIA", "TUR": "TURKEY",
+    }
+    engine_power = power_name if power_name in game.powers else CODE_TO_ENGINE[power_name]
+
+    for move in raw_orders:
+        if not move or not move.strip():
+            continue
+
+        upper = move.upper()
+
+        # WAIVE is always valid
+        if upper == "WAIVE":
+            valid.append("WAIVE")
+            continue
+
+        game.clear_orders(engine_power)
+        game.set_orders(engine_power, [upper])
+        normed = game.get_orders(engine_power)
+
+        if normed:                   # accepted
+            valid.append(normed[0])
+        else:                        # rejected
+            invalid.append(upper)
+            invalid_info.append(f"Order '{move}' is invalid for {power_name}")
+
+    game.clear_orders(engine_power)  # clean slate for main engine flow
+
+    # ── 4. Legacy logging & stats updates ──────────────────────
+    if invalid_info:                                # at least one bad move
+        logger.debug("[%s] Invalid orders: %s", power_name, ", ".join(invalid_info))
+        model_error_stats[client.model_name]["order_decoding_errors"] += 1
+        logger.debug("[%s] Some orders invalid, using fallback.", power_name)
+    else:
+        logger.debug("[%s] All orders valid: %s", power_name, valid)
+
+    # ── 5. Fallback when nothing survives ─────────────────────
+    if not valid:
         fallback = client.fallback_orders(possible_orders)
-        return fallback
+        return {"valid": fallback, "invalid": invalid}
+
+    return {"valid": valid, "invalid": invalid}
+
+
 
 
 def normalize_and_compare_orders(

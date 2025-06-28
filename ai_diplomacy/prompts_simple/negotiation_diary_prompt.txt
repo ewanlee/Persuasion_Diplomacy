@@ -19,9 +19,9 @@ Game State:
 TASK
 Analyze the negotiations, goals, relationships, and game state to:
 1. Summarize key outcomes and agreements
-2. State your strategic intent for {current_phase}
+2. State your specific intents for {current_phase}, including moves you have agreed to in negotiations and whether you intend to fulfil them.
 3. Update relationships as needed (Enemy, Unfriendly, Neutral, Friendly, Ally)
-4. Note which powers are not responding to your messages and consider adjusting your approach
+4. Important: You will not see the full negotiation log in the order decision phase, so you must transmit key information about the negotiations to your future self via this summary.
 
 When powers ignore your messages, consider:
 - They may be intentionally avoiding commitment
