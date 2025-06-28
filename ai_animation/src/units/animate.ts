@@ -12,6 +12,29 @@ import { sineWave, getTimeInSeconds } from "../utils/timing";
 
 
 
+//create an arrow from the unit’s current pos toward the target
+function createMoveArrow(
+  scene: THREE.Scene,
+  unitMesh: THREE.Group,
+  destination: ProvinceENUM
+): THREE.ArrowHelper {
+  const startPos = unitMesh.position.clone();
+  const endPos = getProvincePosition(destination)!;
+
+  // compute direction & length
+  const dir = new THREE.Vector3()
+    .subVectors(endPos, startPos)
+  const length = startPos.distanceTo(endPos) - 2; //subtract a bit so arrow tip doesn't overlap the unit
+
+  const color = 0xFF0000
+
+  const arrow = new THREE.ArrowHelper(dir, startPos, length, color, 1, 0.5);
+  scene.add(arrow);
+
+  unitMesh.userData.moveArrow = arrow;
+  return arrow;
+}
+
 
 function getUnit(unitOrder: UnitOrder, power: string) {
   if (power === undefined) throw new Error("Must pass the power argument, cannot be undefined")
@@ -57,6 +80,8 @@ function createMoveAnimation(unitMesh: THREE.Group, orderDestination: ProvinceEN
   // Store animation start time for consistent wave motion
   const animStartTime = getTimeInSeconds();
   
+  const arrow = createMoveArrow(gameState.scene, unitMesh, orderDestination as ProvinceENUM);
+
   let anim = new Tween(unitMesh.position)
     .to({
       x: destinationVector.x,
@@ -79,6 +104,10 @@ function createMoveAnimation(unitMesh: THREE.Group, orderDestination: ProvinceEN
         unitMesh.rotation.z = 0;
         unitMesh.rotation.x = 0;
       }
+      if (unitMesh.userData.moveArrow) {
+        gameState.scene.remove(arrow);
+        delete unitMesh.userData.moveArrow;
+      }
       unitMesh.userData.isAnimating = false
     })
     .start();
@@ -89,7 +118,7 @@ function createMoveAnimation(unitMesh: THREE.Group, orderDestination: ProvinceEN
 //Animation for bounce
 
 function createBounceAnimation(unitMesh: THREE.Group, attemptedDestination: ProvinceENUM): Tween {
-  const start = unitMesh.position.clone();
+  //const start = unitMesh.position.clone();
   const end = getProvincePosition(attemptedDestination);
   if (!end) throw new Error(`No position found for attempted destination: ${attemptedDestination}`);
 
@@ -98,24 +127,15 @@ function createBounceAnimation(unitMesh: THREE.Group, attemptedDestination: Prov
   let bounceOut = new Tween(unitMesh.position)
     .to({ x: end.x, y: 10, z: end.z }, config.effectiveAnimationDuration / 2)
     .easing(Easing.Quadratic.Out)
+    .repeat(1)
+    .yoyo(true)
     .onComplete(() => {
       console.log('bounceOut finished, should now trigger bounceBack');;
     });
 
-  let bounceBack = new Tween(unitMesh.position)
-    .to({ x: start.x, y: 10, z: start.z }, config.effectiveAnimationDuration / 2)
-    .onStart((() => {
-      console.log('bounceBack started');
-    }))
-    .onComplete(() => {
-      unitMesh.position.set(start.x, 10, start.z); 
-      unitMesh.userData.isAnimating = false;
-    });
-
-  bounceOut.chain(bounceBack);
   bounceOut.start();
 
-  gameState.unitAnimations.push(bounceOut,bounceBack);
+  gameState.unitAnimations.push(bounceOut);
   return bounceOut;
 }
 
