@@ -23,6 +23,7 @@ from .game_history import GameHistory
 from .utils import load_prompt, run_llm_and_log, log_llm_response, generate_random_seed
 # Import DiplomacyAgent for type hinting if needed, but avoid circular import if possible
 from .prompt_constructor import construct_order_generation_prompt, build_context_prompt
+from .formatter import format_with_gemini_flash, FORMAT_ORDERS, FORMAT_CONVERSATION
 
 # set logger back to just info
 logger = logging.getLogger("client")
@@ -121,8 +122,17 @@ class BaseModelClient:
                 f"[{self.model_name}] Raw LLM response for {power_name} orders:\n{raw_response}"
             )
 
-            # Attempt to parse the final "orders" from the LLM
-            move_list = self._extract_moves(raw_response, power_name)
+            # Format the natural language response into structured format
+            formatted_response = await format_with_gemini_flash(
+                raw_response, 
+                FORMAT_ORDERS,
+                power_name=power_name,
+                phase=phase,
+                log_file_path=log_file_path
+            )
+            
+            # Attempt to parse the final "orders" from the formatted response
+            move_list = self._extract_moves(formatted_response, power_name)
 
             if not move_list:
                 logger.warning(
@@ -454,18 +464,37 @@ class BaseModelClient:
         agent_relationships: Optional[Dict[str, str]] = None,
         agent_private_diary_str: Optional[str] = None, # Added
     ) -> str:
-        instructions = load_prompt("conversation_instructions.txt", prompts_dir=self.prompts_dir)
-
-        context = build_context_prompt(
-            game,
-            board_state,
-            power_name,
-            possible_orders,
-            game_history,
-            agent_goals=agent_goals,
-            agent_relationships=agent_relationships,
-            agent_private_diary=agent_private_diary_str, # Pass diary string
-            prompts_dir=self.prompts_dir,
+        instructions = load_prompt("unformatted/conversation_instructions.txt", prompts_dir=self.prompts_dir)
+        
+        # Load conversation-specific context template
+        context_template = load_prompt("unformatted/conversation_context.txt", prompts_dir=self.prompts_dir)
+        
+        # Get phase info
+        current_phase = game.get_current_phase()
+        
+        # Get active powers
+        active_powers = [p for p in game.powers.keys() if not game.powers[p].is_eliminated()]
+        eliminated_powers = [p for p in game.powers.keys() if game.powers[p].is_eliminated()]
+        eliminated_status = f"Eliminated: {', '.join(eliminated_powers)}" if eliminated_powers else "No powers eliminated yet"
+        
+        # Get messages this round
+        messages_this_round = game_history.get_messages_this_round(
+            power_name=power_name,
+            current_phase_name=game.current_short_phase
+        )
+        if not messages_this_round.strip():
+            messages_this_round = "(No messages exchanged yet this round)"
+        
+        # Format the context
+        context = context_template.format(
+            power_name=power_name,
+            current_phase=current_phase,
+            agent_goals="\n".join(f"- {g}" for g in agent_goals) if agent_goals else "- Survive and expand",
+            agent_relationships="\n".join(f"- {p}: {r}" for p, r in agent_relationships.items()) if agent_relationships else "- All powers: Neutral",
+            recent_private_diary=agent_private_diary_str[-500:] if agent_private_diary_str else "(No recent diary entries)",  # Last 500 chars
+            messages_this_round=messages_this_round,
+            active_powers=", ".join(active_powers),
+            eliminated_status=eliminated_status
         )
         
         # Get recent messages targeting this power to prioritize responses
@@ -574,97 +603,95 @@ class BaseModelClient:
             )
             logger.debug(f"[{self.model_name}] Raw LLM response for {power_name}:\n{raw_response}")
             
+            # Format the natural language response into structured JSON
+            formatted_response = await format_with_gemini_flash(
+                raw_response, 
+                FORMAT_CONVERSATION,
+                power_name=power_name,
+                phase=game_phase,
+                log_file_path=log_file_path
+            )
+            
             parsed_messages = []
             json_blocks = []
             json_decode_error_occurred = False
             
-            # Attempt to find blocks enclosed in {{...}}
-            double_brace_blocks = re.findall(r'\{\{(.*?)\}\}', raw_response, re.DOTALL)
-            if double_brace_blocks:
-                # If {{...}} blocks are found, assume each is a self-contained JSON object
-                json_blocks.extend(['{' + block.strip() + '}' for block in double_brace_blocks])
-            else:
-                # If no {{...}} blocks, look for ```json ... ``` markdown blocks
-                code_block_match = re.search(r"```json\n(.*?)\n```", raw_response, re.DOTALL)
-                if code_block_match:
-                    potential_json_array_or_objects = code_block_match.group(1).strip()
-                    # Try to parse as a list of objects or a single object
-                    try:
-                        data = json.loads(potential_json_array_or_objects)
-                        if isinstance(data, list):
-                            json_blocks = [json.dumps(item) for item in data if isinstance(item, dict)]
-                        elif isinstance(data, dict):
-                            json_blocks = [json.dumps(data)]
-                    except json.JSONDecodeError:
-                        # If parsing the whole block fails, fall back to regex for individual objects
-                        json_blocks = re.findall(r'\{.*?\}', potential_json_array_or_objects, re.DOTALL)
+            # For formatted response, we expect a clean JSON array
+            try:
+                data = json.loads(formatted_response)
+                if isinstance(data, list):
+                    parsed_messages = data
+                    json_blocks = [json.dumps(item) for item in data if isinstance(item, dict)]
                 else:
-                    # If no markdown block, fall back to regex for any JSON object in the response
-                    json_blocks = re.findall(r'\{.*?\}', raw_response, re.DOTALL)
+                    logger.warning(f"[{self.model_name}] Formatted response is not a list")
+            except json.JSONDecodeError:
+                logger.warning(f"[{self.model_name}] Failed to parse formatted response as JSON, falling back to regex")
+                # Fall back to original parsing logic using formatted_response
+                raw_response = formatted_response
+            
+            # Original parsing logic as fallback
+            if not parsed_messages:
+                # Attempt to find blocks enclosed in {{...}}
+                double_brace_blocks = re.findall(r'\{\{(.*?)\}\}', raw_response, re.DOTALL)
+                if double_brace_blocks:
+                    # If {{...}} blocks are found, assume each is a self-contained JSON object
+                    json_blocks.extend(['{' + block.strip() + '}' for block in double_brace_blocks])
+                else:
+                    # If no {{...}} blocks, look for ```json ... ``` markdown blocks
+                    code_block_match = re.search(r"```json\n(.*?)\n```", raw_response, re.DOTALL)
+                    if code_block_match:
+                        potential_json_array_or_objects = code_block_match.group(1).strip()
+                        # Try to parse as a list of objects or a single object
+                        try:
+                            data = json.loads(potential_json_array_or_objects)
+                            if isinstance(data, list):
+                                json_blocks = [json.dumps(item) for item in data if isinstance(item, dict)]
+                            elif isinstance(data, dict):
+                                json_blocks = [json.dumps(data)]
+                        except json.JSONDecodeError:
+                            # If parsing the whole block fails, fall back to regex for individual objects
+                            json_blocks = re.findall(r'\{.*?\}', potential_json_array_or_objects, re.DOTALL)
+                    else:
+                        # If no markdown block, fall back to regex for any JSON object in the response
+                        json_blocks = re.findall(r'\{.*?\}', raw_response, re.DOTALL)
 
-            if not json_blocks:
-                logger.warning(f"[{self.model_name}] No JSON message blocks found in response for {power_name}. Raw response:\n{raw_response}")
-                success_status = "Success: No JSON blocks found"
-                # messages_to_return remains empty
-            else:
+            # Process json_blocks if we have them from fallback parsing
+            if not parsed_messages and json_blocks:
                 for block_index, block in enumerate(json_blocks):
                     try:
                         cleaned_block = block.strip()
                         # Attempt to fix common JSON issues like trailing commas before parsing
                         cleaned_block = re.sub(r',\s*([\}\]])', r'\1', cleaned_block) 
                         parsed_message = json.loads(cleaned_block)
+                        parsed_messages.append(parsed_message)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"[{self.model_name}] Failed to parse JSON block {block_index} for {power_name}: {e}")
+                        json_decode_error_occurred = True
                         
-                        if isinstance(parsed_message, dict) and "message_type" in parsed_message and "content" in parsed_message:
-                            # Further validation, e.g., recipient for private messages
-                            if parsed_message["message_type"] == "private" and "recipient" not in parsed_message:
-                                logger.warning(f"[{self.model_name}] Private message missing recipient for {power_name} in block {block_index}. Skipping: {cleaned_block}")
-                                continue # Skip this message
-                            parsed_messages.append(parsed_message)
-                        else:
-                            logger.warning(f"[{self.model_name}] Invalid message structure or missing keys in block {block_index} for {power_name}: {cleaned_block}")
-                             
-                    except json.JSONDecodeError as jde:
-                        # Try to fix unescaped newlines and retry parsing
-                        try:
-                            # Fix unescaped newlines and other control characters in JSON strings
-                            def escape_json_string(match):
-                                # Get the string content (without quotes)
-                                string_content = match.group(1)
-                                # Escape newlines, tabs, and carriage returns
-                                string_content = string_content.replace('\n', '\\n')
-                                string_content = string_content.replace('\r', '\\r')
-                                string_content = string_content.replace('\t', '\\t')
-                                # Return with quotes
-                                return '"' + string_content + '"'
-                            
-                            # Apply escaping to all string values in the JSON
-                            fixed_block = re.sub(r'"([^"]*)"', escape_json_string, cleaned_block)
-                            
-                            # Try parsing again with fixed block
-                            parsed_message = json.loads(fixed_block)
-                            
-                            if isinstance(parsed_message, dict) and "message_type" in parsed_message and "content" in parsed_message:
-                                # Further validation, e.g., recipient for private messages
-                                if parsed_message["message_type"] == "private" and "recipient" not in parsed_message:
-                                    logger.warning(f"[{self.model_name}] Private message missing recipient for {power_name} in block {block_index}. Skipping: {fixed_block}")
-                                    continue # Skip this message
-                                parsed_messages.append(parsed_message)
-                                logger.info(f"[{self.model_name}] Successfully parsed JSON block {block_index} for {power_name} after fixing escape sequences")
-                            else:
-                                logger.warning(f"[{self.model_name}] Invalid message structure or missing keys in block {block_index} for {power_name} after escape fix: {fixed_block}")
-                        except json.JSONDecodeError as jde2:
-                            json_decode_error_occurred = True
-                            logger.warning(f"[{self.model_name}] Failed to decode JSON block {block_index} for {power_name} even after escape fixes. Error: {jde}. Block content:\n{block}")
-
-                if parsed_messages:
-                    success_status = "Success: Messages extracted"
-                    messages_to_return = parsed_messages
-                elif json_decode_error_occurred:
-                    success_status = "Failure: JSONDecodeError during block parsing"
-                    messages_to_return = []
-                else: # JSON blocks found, but none were valid messages
-                    success_status = "Success: No valid messages extracted from JSON blocks"
-                    messages_to_return = []
+            if not parsed_messages:
+                logger.warning(f"[{self.model_name}] No valid messages found in response for {power_name}")
+                success_status = "Success: No messages found"
+                # messages_to_return remains empty
+            else:
+                # Validate parsed messages
+                validated_messages = []
+                for msg in parsed_messages:
+                    if isinstance(msg, dict) and "message_type" in msg and "content" in msg:
+                        if msg["message_type"] == "private" and "recipient" not in msg:
+                            logger.warning(f"[{self.model_name}] Private message missing recipient for {power_name}")
+                            continue
+                        validated_messages.append(msg)
+                    else:
+                        logger.warning(f"[{self.model_name}] Invalid message structure for {power_name}")
+                parsed_messages = validated_messages
+                
+            # Set final status and return value
+            if parsed_messages:
+                success_status = "Success: Messages extracted"
+                messages_to_return = parsed_messages
+            else:
+                success_status = "Success: No valid messages"
+                messages_to_return = []
 
             logger.debug(f"[{self.model_name}] Validated conversation replies for {power_name}: {messages_to_return}")
             # return messages_to_return # Return will happen in finally block or after

@@ -184,16 +184,16 @@ def construct_order_generation_prompt(
     """
     # Load prompts
     _ = load_prompt("few_shot_example.txt", prompts_dir=prompts_dir) # Loaded but not used, as per original logic
-    # Pick the phase-specific instruction file
+    # Pick the phase-specific instruction file (using unformatted versions)
     phase_code = board_state["phase"][-1]          # 'M' (movement), 'R', or 'A' / 'B'
     if phase_code == "M":
-        instructions_file = "order_instructions_movement_phase.txt"
+        instructions_file = "unformatted/order_instructions_movement_phase.txt"
     elif phase_code in ("A", "B"):                 # builds / adjustments
-        instructions_file = "order_instructions_adjustment_phase.txt"
+        instructions_file = "unformatted/order_instructions_adjustment_phase.txt"
     elif phase_code == "R":                        # retreats
-        instructions_file = "order_instructions_retreat_phase.txt"
+        instructions_file = "unformatted/order_instructions_retreat_phase.txt"
     else:                                          # unexpected – default to movement rules
-        instructions_file = "order_instructions_movement_phase.txt"
+        instructions_file = "unformatted/order_instructions_movement_phase.txt"
 
     instructions = load_prompt(instructions_file, prompts_dir=prompts_dir)
     _use_simple = os.getenv("SIMPLE_PROMPTS", "0").lower() in {"1", "true", "yes"}
@@ -212,10 +212,15 @@ def construct_order_generation_prompt(
         include_messages=not _use_simple,   # include only when *not* simple
     )
 
-    final_prompt = system_prompt + "\n\n" + context + "\n\n" + instructions
+    # Append goals at the end for focus
+    goals_section = ""
+    if agent_goals:
+        goals_section = "\n\nYOUR STRATEGIC GOALS:\n" + "\n".join(f"- {g}" for g in agent_goals) + "\n\nKeep these goals in mind when choosing your orders."
+    
+    final_prompt = system_prompt + "\n\n" + context + "\n\n" + instructions + goals_section
     
     # Make the power names more LLM friendly
     final_prompt = final_prompt.replace('AUSTRIA', 'Austria').replace('ENGLAND', "England").replace('FRANCE', 'France').replace('GERMANY', 'Germany').replace('ITALY', "Italy").replace('RUSSIA', 'Russia').replace('TURKEY', 'Turkey')
-    print(final_prompt)
+    logger.debug(f"Final order generation prompt preview for {power_name}: {final_prompt[:500]}...")
 
     return final_prompt

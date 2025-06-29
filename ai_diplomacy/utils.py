@@ -76,13 +76,13 @@ def assign_models_to_powers() -> Dict[str, str]:
     # TEST MODELS
     
     return {
-        "AUSTRIA": "openrouter-google/gemini-2.5-flash-preview-05-20",
-        "ENGLAND": "openrouter-google/gemini-2.5-flash-preview-05-20",
-        "FRANCE": "openrouter-google/gemini-2.5-flash-preview-05-20",
-        "GERMANY": "openrouter-google/gemini-2.5-flash-preview-05-20",
-        "ITALY": "openrouter-google/gemini-2.5-flash-preview-05-20",  
-        "RUSSIA": "openrouter-google/gemini-2.5-flash-preview-05-20",
-        "TURKEY": "openrouter-google/gemini-2.5-flash-preview-05-20",
+        "AUSTRIA": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
+        "ENGLAND": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
+        "FRANCE": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
+        "GERMANY": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
+        "ITALY": "openrouter-mistralai/mistral-small-3.2-24b-instruct",  
+        "RUSSIA": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
+        "TURKEY": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
     }
     
     
@@ -298,7 +298,12 @@ def load_prompt(filename: str, prompts_dir: Optional[str] = None) -> str:
     if os.path.isabs(filename):                    # rule 1
         prompt_path = filename
     elif os.path.dirname(filename):                # rule 2  (has slash)
-        prompt_path = filename                     # relative but already complete
+        # If it's a relative path with directory, join with prompts_dir if provided
+        if prompts_dir:
+            prompt_path = os.path.join(prompts_dir, filename)
+        else:
+            default_dir = os.path.join(os.path.dirname(__file__), "prompts")
+            prompt_path = os.path.join(default_dir, filename)
     elif prompts_dir:                              # rule 3
         prompt_path = os.path.join(prompts_dir, filename)
     else:                                          # rule 4
@@ -333,13 +338,15 @@ def log_llm_response(
         if log_dir: # Ensure log_dir is not empty (e.g., if path is just a filename)
              os.makedirs(log_dir, exist_ok=True)
 
-        # Check if file exists to write header
-        file_exists = os.path.isfile(log_file_path)
+        # Check if file exists and has content to determine if we need headers
+        file_exists = os.path.isfile(log_file_path) and os.path.getsize(log_file_path) > 0
 
         with open(log_file_path, "a", newline="", encoding="utf-8") as csvfile:
             # Added "raw_input" to fieldnames
             fieldnames = ["model", "power", "phase", "response_type", "raw_input", "raw_response", "success"]
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, 
+                                  quoting=csv.QUOTE_ALL,  # Quote all fields to handle commas and newlines
+                                  escapechar='\\')  # Use backslash for escaping
 
             if not file_exists:
                 writer.writeheader()  # Write header only if file is new

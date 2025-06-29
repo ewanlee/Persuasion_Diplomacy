@@ -14,6 +14,7 @@ from .utils import load_prompt, run_llm_and_log, log_llm_response
 from .prompt_constructor import build_context_prompt # Added import
 from .clients import GameHistory
 from diplomacy import Game
+from .formatter import format_with_gemini_flash, FORMAT_ORDER_DIARY, FORMAT_NEGOTIATION_DIARY, FORMAT_STATE_UPDATE
 
 logger = logging.getLogger(__name__)
 
@@ -425,16 +426,19 @@ class DiplomacyAgent:
         success_status = "Failure: Initialized" # Default
 
         try:
-            # Load the template file but safely preprocess it first
-            prompt_template_content = _load_prompt_file('negotiation_diary_prompt.txt', prompts_dir=self.prompts_dir)
+            # Load the unformatted template file
+            prompt_template_content = _load_prompt_file('unformatted/negotiation_diary_prompt.txt', prompts_dir=self.prompts_dir)
             if not prompt_template_content:
-                logger.error(f"[{self.power_name}] Could not load negotiation_diary_prompt.txt. Skipping diary entry.")
+                logger.error(f"[{self.power_name}] Could not load unformatted/negotiation_diary_prompt.txt. Skipping diary entry.")
                 success_status = "Failure: Prompt file not loaded"
                 return # Exit early if prompt can't be loaded
 
             # Prepare context for the prompt
             board_state_dict = game.get_state()
-            board_state_str = f"Units: {board_state_dict.get('units', {})}, Centers: {board_state_dict.get('centers', {})}"
+            # Create readable board state string
+            units_str = "\n".join([f"  {p}: {', '.join(u)}" for p, u in board_state_dict.get('units', {}).items()])
+            centers_str = "\n".join([f"  {p}: {', '.join(c)}" for p, c in board_state_dict.get('centers', {}).items()])
+            board_state_str = f"Units:\n{units_str}\n\nSupply Centers:\n{centers_str}"
             
             messages_this_round = game_history.get_messages_this_round(
                 power_name=self.power_name,
@@ -526,7 +530,15 @@ class DiplomacyAgent:
 
             parsed_data = None
             try:
-                parsed_data = self._extract_json_from_text(raw_response)
+                # Format the natural language response into JSON
+                formatted_response = await format_with_gemini_flash(
+                    raw_response, 
+                    FORMAT_NEGOTIATION_DIARY,
+                    power_name=self.power_name,
+                    phase=game.current_short_phase,
+                    log_file_path=log_file_path
+                )
+                parsed_data = self._extract_json_from_text(formatted_response)
                 logger.debug(f"[{self.power_name}] Parsed diary data: {parsed_data}")
                 success_status = "Success: Parsed diary data"
             except json.JSONDecodeError as e:
@@ -560,7 +572,7 @@ class DiplomacyAgent:
                 
                 # Fix 2: Be more robust about extracting relationship updates
                 new_relationships = None
-                for key in ['relationship_updates', 'updated_relationships', 'relationships']:
+                for key in ['current_relationships', 'relationship_updates', 'updated_relationships', 'relationships']:
                     if key in parsed_data and isinstance(parsed_data[key], dict):
                         new_relationships = parsed_data[key]
                         logger.info(f"[{self.power_name}] Successfully extracted '{key}' for relationship updates.")
@@ -590,7 +602,7 @@ class DiplomacyAgent:
                         if success_status == "Success: Parsed diary data": # If only parsing was successful before
                              success_status = "Success: Parsed, no valid relationship updates"
                 elif new_relationships is not None: # It was provided but not a dict
-                    logger.warning(f"[{self.power_name}] 'updated_relationships' from diary LLM was not a dictionary: {type(new_relationships)}")
+                    logger.warning(f"[{self.power_name}] 'current_relationships' from diary LLM was not a dictionary: {type(new_relationships)}")
 
             # Add the generated (or fallback) diary entry
             self.add_diary_entry(diary_entry_text, game.current_short_phase)
@@ -626,14 +638,17 @@ class DiplomacyAgent:
         """
         logger.info(f"[{self.power_name}] Generating order diary entry for {game.current_short_phase}...")
         
-        # Load the template but we'll use it carefully with string interpolation
-        prompt_template = _load_prompt_file('order_diary_prompt.txt', prompts_dir=self.prompts_dir)
+        # Load the unformatted template for better content generation
+        prompt_template = _load_prompt_file('unformatted/order_diary_prompt.txt', prompts_dir=self.prompts_dir)
         if not prompt_template:
-            logger.error(f"[{self.power_name}] Could not load order_diary_prompt.txt. Skipping diary entry.")
+            logger.error(f"[{self.power_name}] Could not load unformatted/order_diary_prompt.txt. Skipping diary entry.")
             return
 
         board_state_dict = game.get_state()
-        board_state_str = f"Units: {board_state_dict.get('units', {})}, Centers: {board_state_dict.get('centers', {})}"
+        # Create readable board state string
+        units_str = "\n".join([f"  {p}: {', '.join(u)}" for p, u in board_state_dict.get('units', {}).items()])
+        centers_str = "\n".join([f"  {p}: {', '.join(c)}" for p, c in board_state_dict.get('centers', {}).items()])
+        board_state_str = f"Units:\n{units_str}\n\nSupply Centers:\n{centers_str}"
         
         orders_list_str = "\n".join([f"- {o}" for o in orders]) if orders else "No orders submitted."
         
@@ -700,7 +715,15 @@ class DiplomacyAgent:
 
             if raw_response:
                 try:
-                    response_data = self._extract_json_from_text(raw_response)
+                    # Format the natural language response into JSON
+                    formatted_response = await format_with_gemini_flash(
+                        raw_response, 
+                        FORMAT_ORDER_DIARY,
+                        power_name=self.power_name,
+                        phase=game.current_short_phase,
+                        log_file_path=log_file_path
+                    )
+                    response_data = self._extract_json_from_text(formatted_response)
                     if response_data:
                         # Directly attempt to get 'order_summary' as per the prompt
                         diary_text_candidate = response_data.get("order_summary")
@@ -874,10 +897,10 @@ class DiplomacyAgent:
         self.log_state(f"Before State Update ({current_phase})")
 
         try:
-            # 1. Construct the prompt using the dedicated state update prompt file
-            prompt_template = _load_prompt_file('state_update_prompt.txt', prompts_dir=self.prompts_dir)
+            # 1. Construct the prompt using the unformatted state update prompt file
+            prompt_template = _load_prompt_file('unformatted/state_update_prompt.txt', prompts_dir=self.prompts_dir)
             if not prompt_template:
-                 logger.error(f"[{power_name}] Could not load state_update_prompt.txt. Skipping state update.")
+                 logger.error(f"[{power_name}] Could not load unformatted/state_update_prompt.txt. Skipping state update.")
                  return
  
             # Get previous phase safely from history
@@ -916,12 +939,15 @@ class DiplomacyAgent:
             other_powers = [p for p in game.powers if p != power_name]
             
             # Create a readable board state string from the board_state dict
-            board_state_str = f"Board State:\n"
-            for p_name, power_data in board_state.get('powers', {}).items():
-                # Get units and centers from the board state
-                units = power_data.get('units', [])
-                centers = power_data.get('centers', [])
-                board_state_str += f"  {p_name}: Units={units}, Centers={centers}\n"
+            board_state_str = "Units:\n"
+            for p_name, units in board_state.get('units', {}).items():
+                units_str = ", ".join(units) if units else "None"
+                board_state_str += f"  {p_name}: {units_str}\n"
+            
+            board_state_str += "\nSupply Centers:\n"
+            for p_name, centers in board_state.get('centers', {}).items():
+                centers_str = ", ".join(centers) if centers else "None"
+                board_state_str += f"  {p_name}: {centers_str}\n"
             
             # Extract year from the phase name (e.g., "S1901M" -> "1901")
             current_year = last_phase_name[1:5] if len(last_phase_name) >= 5 else "unknown"
@@ -956,7 +982,15 @@ class DiplomacyAgent:
 
             if response is not None and response.strip(): # Check if response is not None and not just whitespace
                 try:
-                    update_data = self._extract_json_from_text(response)
+                    # Format the natural language response into JSON
+                    formatted_response = await format_with_gemini_flash(
+                        response, 
+                        FORMAT_STATE_UPDATE,
+                        power_name=power_name,
+                        phase=current_phase,
+                        log_file_path=log_file_path
+                    )
+                    update_data = self._extract_json_from_text(formatted_response)
                     logger.debug(f"[{power_name}] Successfully parsed JSON: {update_data}")
                     
                     # Ensure update_data is a dictionary

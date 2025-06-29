@@ -9,9 +9,10 @@ if False: # TYPE_CHECKING
     from diplomacy.models.game import GameHistory
     from .agent import DiplomacyAgent
 
-from .agent import ALL_POWERS, ALLOWED_RELATIONSHIPS
+from .agent import ALL_POWERS, ALLOWED_RELATIONSHIPS, _load_prompt_file
 from .utils import run_llm_and_log, log_llm_response
 from .prompt_constructor import build_context_prompt
+from .formatter import format_with_gemini_flash, FORMAT_INITIAL_STATE
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +33,18 @@ async def initialize_agent_state_ext(
     success_status = "Failure: Initialized" # Default status
 
     try:
-        # Use a simplified prompt for initial state generation
+        # Load the unformatted prompt template
         allowed_labels_str = ", ".join(ALLOWED_RELATIONSHIPS)
-        initial_prompt = f"You are the agent for {power_name} in a game of Diplomacy at the very start (Spring 1901). " \
-                         f"Analyze the initial board position and suggest 2-3 strategic high-level goals for the early game. " \
-                         f"Consider your power's strengths, weaknesses, and neighbors. " \
-                         f"Also, provide an initial assessment of relationships with other powers. " \
-                         f"IMPORTANT: For each relationship, you MUST use exactly one of the following labels: {allowed_labels_str}. " \
-                         f"Format your response as a JSON object with two keys: 'initial_goals' (a list of strings) and 'initial_relationships' (a dictionary mapping power names to one of the allowed relationship strings)."
+        initial_prompt_template = _load_prompt_file('unformatted/initial_state_prompt.txt', prompts_dir=prompts_dir)
+        if not initial_prompt_template:
+            logger.error(f"[{power_name}] Could not load unformatted/initial_state_prompt.txt. Cannot initialize.")
+            return
+        
+        # Format the prompt with variables
+        initial_prompt = initial_prompt_template.format(
+            power_name=power_name,
+            allowed_labels_str=allowed_labels_str
+        )
 
         board_state = game.get_state() if game else {}
         possible_orders = game.get_all_possible_orders() if game else {}
@@ -75,7 +80,15 @@ async def initialize_agent_state_ext(
 
         parsed_successfully = False
         try:
-            update_data = agent._extract_json_from_text(response)
+            # Format the natural language response into JSON
+            formatted_response = await format_with_gemini_flash(
+                response, 
+                FORMAT_INITIAL_STATE,
+                power_name=power_name,
+                phase=current_phase,
+                log_file_path=log_file_path
+            )
+            update_data = agent._extract_json_from_text(formatted_response)
             logger.debug(f"[{power_name}] Successfully parsed JSON: {update_data}")
             parsed_successfully = True
         except json.JSONDecodeError as e:
