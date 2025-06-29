@@ -484,8 +484,10 @@ class BaseModelClient:
                 unanswered_messages += f"\nFrom {msg['sender']} in {msg['phase']}: {msg['content']}\n"
         else:
             unanswered_messages += "\nNo urgent messages requiring direct responses.\n"
-
-        return context + unanswered_messages + "\n\n" + instructions
+            
+        final_prompt = context + unanswered_messages + "\n\n" + instructions
+        final_prompt = final_prompt.replace('AUSTRIA', 'Austria').replace('ENGLAND', "England").replace('FRANCE', 'France').replace('GERMANY', 'Germany').replace('ITALY', "Italy").replace('RUSSIA', 'Russia').replace('TURKEY', 'Turkey')
+        return final_prompt
 
     async def get_planning_reply( # Renamed from get_plan to avoid conflict with get_plan in agent.py
         self,

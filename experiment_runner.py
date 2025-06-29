@@ -99,6 +99,22 @@ def _add_experiment_flags(p: argparse.ArgumentParser) -> None:
             "flag to lm_game for deterministic behaviour)."
         ),
     )
+    p.add_argument(
+        "--compare_to",
+        type=Path,
+        default=None,
+        help=(
+            "Path to another completed experiment directory. "
+            "If supplied alongside --experiment_dir, the runner skips game "
+            "execution and produces a statistical comparison between the two."
+        ),
+    )
+    p.add_argument(
+        "--sig_level",
+        type=float,
+        default=0.05,
+        help="α for hypothesis tests in comparison mode (default 0.05).",
+    )
 
 
 def _add_lm_game_flags(p: argparse.ArgumentParser) -> None:
@@ -167,6 +183,17 @@ def _add_lm_game_flags(p: argparse.ArgumentParser) -> None:
         help=(
             "Path to the directory containing prompt files. "
             "Defaults to the packaged prompts directory."
+        ),
+    )
+    p.add_argument(
+        "--simple_prompts",
+        type=_str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help=(
+            "When true (1 / true / yes) the engine switches to simpler prompts "
+            "which low-midrange models handle better."
         ),
     )
 
@@ -254,6 +281,20 @@ def _parse_cli() -> tuple[argparse.Namespace, list[str], argparse.Namespace]:
 _RunInfo = collections.namedtuple(
     "_RunInfo", "index run_dir seed cmd_line returncode elapsed_s"
 )
+
+def _str2bool(v: str | bool) -> bool:
+    """
+    Accepts typical textual truthy / falsy values and returns a bool.
+    Mirrors the helper used inside lm_game.
+    """
+    if isinstance(v, bool):
+        return v
+    val = v.lower()
+    if val in ("yes", "y", "true", "t", "1"):
+        return True
+    if val in ("no", "n", "false", "f", "0"):
+        return False
+    raise argparse.ArgumentTypeError("boolean value expected")
 
 
 def _mk_run_dir(exp_dir: Path, idx: int) -> Path:
@@ -371,6 +412,13 @@ def main() -> None:
     if exp_dir.exists():
         log.info("Appending to existing experiment: %s", exp_dir)
     exp_dir.mkdir(parents=True, exist_ok=True)
+
+    if exp_args.compare_to is not None:
+        from experiment_runner.analysis import compare_stats   # local import
+
+        compare_stats.run(exp_dir, exp_args.compare_to, alpha=exp_args.sig_level)
+        log.info("comparison complete; artefacts in %s/analysis/comparison", exp_dir)
+        return
 
     # Persist experiment-level config
     cfg_path = exp_dir / "config.json"

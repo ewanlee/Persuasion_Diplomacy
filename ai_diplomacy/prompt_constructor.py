@@ -124,9 +124,20 @@ def build_context_prompt(
     # Build {home_centers}
     home_centers_str = ", ".join(HOME_CENTERS.get(power_name.upper(), []))
 
+    order_history_str = game_history.get_order_history_for_prompt(
+        game=game, # Pass the game object for normalization
+        power_name=power_name,
+        current_phase_name=year_phase,
+        num_movement_phases_to_show=1
+    )
+
     # Replace token only if it exists (template may not include it)
     if "{home_centers}" in context_template:
         context_template = context_template.replace("{home_centers}", home_centers_str)
+    
+    # Following the pattern for home_centers, use replace for safety
+    if "{order_history}" in context_template:
+        context_template = context_template.replace("{order_history}", order_history_str)
 
     context = context_template.format(
         power_name=power_name,
@@ -202,5 +213,9 @@ def construct_order_generation_prompt(
     )
 
     final_prompt = system_prompt + "\n\n" + context + "\n\n" + instructions
+    
+    # Make the power names more LLM friendly
+    final_prompt = final_prompt.replace('AUSTRIA', 'Austria').replace('ENGLAND', "England").replace('FRANCE', 'France').replace('GERMANY', 'Germany').replace('ITALY', "Italy").replace('RUSSIA', 'Russia').replace('TURKEY', 'Turkey')
+    print(final_prompt)
 
     return final_prompt
