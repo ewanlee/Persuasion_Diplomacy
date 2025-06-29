@@ -90,26 +90,24 @@ class DiplomacyAgent:
 
         # --- Load and set the appropriate system prompt ---
         # Get the directory containing the current file (agent.py)
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        # Construct path relative to the current file's directory
-        default_prompts_path = os.path.join(current_dir, "prompts") 
-        power_prompt_filename = f"{power_name.lower()}_system_prompt.txt"
-        default_prompt_filename = "system_prompt.txt"
+        current_dir            = os.path.dirname(os.path.abspath(__file__))
+        default_prompts_path   = os.path.join(current_dir, "prompts")
+        prompts_root           = self.prompts_dir or default_prompts_path
 
-        # Use the provided prompts_dir if available, otherwise use the default
-        prompts_path_to_use = self.prompts_dir if self.prompts_dir else default_prompts_path
-        
-        power_prompt_filepath = os.path.join(prompts_path_to_use, power_prompt_filename)
-        default_prompt_filepath = os.path.join(prompts_path_to_use, default_prompt_filename)
+        power_prompt_name      = f"{power_name.lower()}_system_prompt.txt"
+        default_prompt_name    = "system_prompt.txt"
 
-        system_prompt_content = load_prompt(power_prompt_filepath, prompts_dir=self.prompts_dir)
+        power_prompt_path      = os.path.join(prompts_root, power_prompt_name)
+        default_prompt_path    = os.path.join(prompts_root, default_prompt_name)
+
+        system_prompt_content  = load_prompt(power_prompt_path)
 
         if not system_prompt_content:
-            logger.warning(f"Power-specific prompt '{power_prompt_filepath}' not found or empty. Loading default system prompt.")
-            system_prompt_content = load_prompt(default_prompt_filepath, prompts_dir=self.prompts_dir)
-        else:
-             logger.info(f"Loaded power-specific system prompt for {power_name}.")
-        # ----------------------------------------------------
+            logger.warning(
+                f"Power-specific prompt not found at {power_prompt_path}. Falling back to default."
+            )
+            system_prompt_content = load_prompt(default_prompt_path)
+
 
         if system_prompt_content: # Ensure we actually have content before setting
              self.client.set_system_prompt(system_prompt_content)
@@ -547,6 +545,12 @@ class DiplomacyAgent:
                         diary_text_candidate = parsed_data[key].strip()
                         logger.info(f"[{self.power_name}] Successfully extracted '{key}' for diary.")
                         break
+
+                if 'intent' in parsed_data:
+                    if diary_text_candidate == None:
+                        diary_text_candidate = parsed_data['intent']
+                    else:
+                        diary_text_candidate += '\nIntent: ' + parsed_data['intent']
                         
                 if diary_text_candidate:
                     diary_entry_text = diary_text_candidate

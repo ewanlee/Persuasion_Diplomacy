@@ -179,7 +179,8 @@ def save_game_state(
 def load_game_state(
     run_dir: str,
     game_file_name: str,
-    resume_from_phase: Optional[str] = None
+    run_config: Namespace,
+    resume_from_phase: Optional[str] = None,
 ) -> Tuple[Game, Dict[str, DiplomacyAgent], GameHistory, Optional[Namespace]]:
     """Loads and reconstructs the game state from a saved game file."""
     game_file_path = os.path.join(run_dir, game_file_name)
@@ -189,15 +190,6 @@ def load_game_state(
     logger.info(f"Loading game state from: {game_file_path}")
     with open(game_file_path, 'r') as f:
         saved_game_data = json.load(f)
-
-    # Find the latest config saved in the file
-    run_config = None
-    if saved_game_data.get("phases"):
-        for phase in reversed(saved_game_data["phases"]):
-            if "config" in phase:
-                run_config = Namespace(**phase["config"])
-                logger.info(f"Loaded run configuration from phase {phase['name']}.")
-                break
 
     # If resuming, find the specified phase and truncate the data after it
     if resume_from_phase:

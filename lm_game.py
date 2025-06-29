@@ -9,6 +9,7 @@ from collections import defaultdict
 from argparse import Namespace
 from typing import Dict
 import shutil
+import sys
 
 # Suppress Gemini/PaLM gRPC warnings
 os.environ["GRPC_PYTHON_LOG_LEVEL"] = "40"  # ERROR level only
@@ -24,7 +25,7 @@ from ai_diplomacy.negotiations import conduct_negotiations
 from ai_diplomacy.planning import planning_phase
 from ai_diplomacy.game_history import GameHistory
 from ai_diplomacy.agent import DiplomacyAgent
-import ai_diplomacy.narrative
+# import ai_diplomacy.narrative
 from ai_diplomacy.game_logic import (
     save_game_state,
     load_game_state,
@@ -44,6 +45,14 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 # logging.getLogger("root").setLevel(logging.WARNING) # Assuming root handles AFC
 
+
+def _str2bool(v: str) -> bool:
+    v = str(v).lower()
+    if v in {"1", "true", "t", "yes", "y"}:
+        return True
+    if v in {"0", "false", "f", "no", "n"}:
+        return False
+    raise argparse.ArgumentTypeError(f"Boolean value expected, got '{v}'")
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -129,6 +138,16 @@ def parse_arguments():
         default=None,
         help="Path to the directory containing prompt files. Defaults to the packaged prompts directory."
     )
+    parser.add_argument(
+        "--simple_prompts",
+        type=_str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help=(
+            "When true (1 / true / yes) the engine switches to simpler prompts which low-midrange models handle better."
+        ),
+    )
 
     return parser.parse_args()
 
@@ -136,6 +155,17 @@ def parse_arguments():
 async def main():
     args = parse_arguments()
     start_whole = time.time()
+
+    # honour --simple_prompts before anything else needs it
+    if args.simple_prompts:
+        os.environ["SIMPLE_PROMPTS"] = "1"                   # read by prompt_constructor
+        if args.prompts_dir is None:
+            pkg_root = os.path.join(os.path.dirname(__file__), "ai_diplomacy")
+            args.prompts_dir = os.path.join(pkg_root, "prompts_simple")
+
+    if args.prompts_dir and not os.path.isdir(args.prompts_dir):
+        print(f"ERROR: Prompts directory not found: {args.prompts_dir}", file=sys.stderr)
+        sys.exit(1)
 
     # --- 1. Determine Run Directory and Mode (New vs. Resume) ---
     run_dir = args.run_dir
@@ -197,7 +227,8 @@ async def main():
     if is_resuming:
         try:
             # When resuming, we load the state and also the config from the last saved phase.
-            game, agents, game_history, loaded_run_config = load_game_state(run_dir, game_file_name, args.resume_from_phase)
+            game, agents, game_history, loaded_run_config = load_game_state(run_dir, game_file_name, run_config, args.resume_from_phase)
+            
             if loaded_run_config:
                 # Use the saved config, but allow current CLI args to override control-flow parameters
                 run_config = loaded_run_config

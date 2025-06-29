@@ -71,7 +71,7 @@ def _add_experiment_flags(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--analysis_modules",
         type=str,
-        default="summary",
+        default="summary,statistical_game_analysis",
         help=(
             "Comma-separated list of analysis module names to execute after all "
             "runs finish.  Modules are imported from "

@@ -5,7 +5,11 @@ import logging
 from typing import Dict, List, Optional, Any # Added Any for game type placeholder
 
 from .utils import load_prompt
-from .possible_order_context import generate_rich_order_context
+from .possible_order_context import (
+    generate_rich_order_context,
+    generate_rich_order_context_xml,
+)
+import os
 from .game_history import GameHistory # Assuming GameHistory is correctly importable
 
 # placeholder for diplomacy.Game to avoid circular or direct dependency if not needed for typehinting only
@@ -13,6 +17,17 @@ from .game_history import GameHistory # Assuming GameHistory is correctly import
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG) # Or inherit from parent logger
+
+# --- Home-center lookup -------------------------------------------
+HOME_CENTERS: dict[str, list[str]] = {
+    "AUSTRIA":  ["Budapest", "Trieste", "Vienna"],
+    "ENGLAND":  ["Edinburgh", "Liverpool", "London"],
+    "FRANCE":   ["Brest", "Marseilles", "Paris"],
+    "GERMANY":  ["Berlin", "Kiel", "Munich"],
+    "ITALY":    ["Naples", "Rome", "Venice"],
+    "RUSSIA":   ["Moscow", "Saint Petersburg", "Sevastopol", "Warsaw"],
+    "TURKEY":   ["Ankara", "Constantinople", "Smyrna"],
+}
 
 def build_context_prompt(
     game: Any, # diplomacy.Game object
@@ -24,6 +39,7 @@ def build_context_prompt(
     agent_relationships: Optional[Dict[str, str]] = None,
     agent_private_diary: Optional[str] = None,
     prompts_dir: Optional[str] = None,
+    include_messages: Optional[bool] = True,
 ) -> str:
     """Builds the detailed context part of the prompt.
 
@@ -59,14 +75,27 @@ def build_context_prompt(
     # Get the current phase
     year_phase = board_state["phase"]  # e.g. 'S1901M'
 
-    possible_orders_context_str = generate_rich_order_context(game, power_name, possible_orders)
+    # Decide which context builder to use.
+    _use_simple = os.getenv("SIMPLE_PROMPTS", "0").lower() in {"1", "true", "yes"}
+    if _use_simple:
+        possible_orders_context_str = generate_rich_order_context(
+            game, power_name, possible_orders
+        )
+    else:
+        possible_orders_context_str = generate_rich_order_context_xml(
+            game, power_name, possible_orders
+        )
 
-    messages_this_round_text = game_history.get_messages_this_round(
-        power_name=power_name,
-        current_phase_name=year_phase
-    )
-    if not messages_this_round_text.strip():
-        messages_this_round_text = "\n(No messages this round)\n"
+
+    if include_messages:
+        messages_this_round_text = game_history.get_messages_this_round(
+            power_name=power_name,
+            current_phase_name=year_phase
+        )
+        if not messages_this_round_text.strip():
+            messages_this_round_text = "\n(No messages this round)\n"
+    else:
+        messages_this_round_text = "\n"
 
     # Separate active and eliminated powers for clarity
     active_powers = [p for p in game.powers.keys() if not game.powers[p].is_eliminated()]
@@ -75,20 +104,29 @@ def build_context_prompt(
     # Build units representation with power status
     units_lines = []
     for p, u in board_state["units"].items():
+        u_str = ", ".join(u)
         if game.powers[p].is_eliminated():
-            units_lines.append(f"  {p}: {u} [ELIMINATED]")
+            units_lines.append(f"  {p}: {u_str} [ELIMINATED]")
         else:
-            units_lines.append(f"  {p}: {u}")
+            units_lines.append(f"  {p}: {u_str}")
     units_repr = "\n".join(units_lines)
-    
+
     # Build centers representation with power status  
     centers_lines = []
     for p, c in board_state["centers"].items():
+        c_str = ", ".join(c)
         if game.powers[p].is_eliminated():
-            centers_lines.append(f"  {p}: {c} [ELIMINATED]")
+            centers_lines.append(f"  {p}: {c_str} [ELIMINATED]")
         else:
-            centers_lines.append(f"  {p}: {c}")
+            centers_lines.append(f"  {p}: {c_str}")
     centers_repr = "\n".join(centers_lines)
+
+    # Build {home_centers}
+    home_centers_str = ", ".join(HOME_CENTERS.get(power_name.upper(), []))
+
+    # Replace token only if it exists (template may not include it)
+    if "{home_centers}" in context_template:
+        context_template = context_template.replace("{home_centers}", home_centers_str)
 
     context = context_template.format(
         power_name=power_name,
@@ -135,7 +173,19 @@ def construct_order_generation_prompt(
     """
     # Load prompts
     _ = load_prompt("few_shot_example.txt", prompts_dir=prompts_dir) # Loaded but not used, as per original logic
-    instructions = load_prompt("order_instructions.txt", prompts_dir=prompts_dir)
+    # Pick the phase-specific instruction file
+    phase_code = board_state["phase"][-1]          # 'M' (movement), 'R', or 'A' / 'B'
+    if phase_code == "M":
+        instructions_file = "order_instructions_movement_phase.txt"
+    elif phase_code in ("A", "B"):                 # builds / adjustments
+        instructions_file = "order_instructions_adjustment_phase.txt"
+    elif phase_code == "R":                        # retreats
+        instructions_file = "order_instructions_retreat_phase.txt"
+    else:                                          # unexpected – default to movement rules
+        instructions_file = "order_instructions_movement_phase.txt"
+
+    instructions = load_prompt(instructions_file, prompts_dir=prompts_dir)
+    _use_simple = os.getenv("SIMPLE_PROMPTS", "0").lower() in {"1", "true", "yes"}
 
     # Build the context prompt
     context = build_context_prompt(
@@ -148,7 +198,9 @@ def construct_order_generation_prompt(
         agent_relationships=agent_relationships,
         agent_private_diary=agent_private_diary_str,
         prompts_dir=prompts_dir,
+        include_messages=not _use_simple,   # include only when *not* simple
     )
 
     final_prompt = system_prompt + "\n\n" + context + "\n\n" + instructions
+
     return final_prompt
