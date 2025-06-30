@@ -435,10 +435,7 @@ class DiplomacyAgent:
 
             # Prepare context for the prompt
             board_state_dict = game.get_state()
-            # Create readable board state string
-            units_str = "\n".join([f"  {p}: {', '.join(u)}" for p, u in board_state_dict.get('units', {}).items()])
-            centers_str = "\n".join([f"  {p}: {', '.join(c)}" for p, c in board_state_dict.get('centers', {}).items()])
-            board_state_str = f"Units:\n{units_str}\n\nSupply Centers:\n{centers_str}"
+            board_state_str = f"Units: {board_state_dict.get('units', {})}, Centers: {board_state_dict.get('centers', {})}"
             
             messages_this_round = game_history.get_messages_this_round(
                 power_name=self.power_name,
@@ -572,7 +569,7 @@ class DiplomacyAgent:
                 
                 # Fix 2: Be more robust about extracting relationship updates
                 new_relationships = None
-                for key in ['current_relationships', 'relationship_updates', 'updated_relationships', 'relationships']:
+                for key in ['relationship_updates', 'updated_relationships', 'relationships']:
                     if key in parsed_data and isinstance(parsed_data[key], dict):
                         new_relationships = parsed_data[key]
                         logger.info(f"[{self.power_name}] Successfully extracted '{key}' for relationship updates.")
@@ -602,7 +599,7 @@ class DiplomacyAgent:
                         if success_status == "Success: Parsed diary data": # If only parsing was successful before
                              success_status = "Success: Parsed, no valid relationship updates"
                 elif new_relationships is not None: # It was provided but not a dict
-                    logger.warning(f"[{self.power_name}] 'current_relationships' from diary LLM was not a dictionary: {type(new_relationships)}")
+                    logger.warning(f"[{self.power_name}] 'updated_relationships' from diary LLM was not a dictionary: {type(new_relationships)}")
 
             # Add the generated (or fallback) diary entry
             self.add_diary_entry(diary_entry_text, game.current_short_phase)
@@ -645,10 +642,7 @@ class DiplomacyAgent:
             return
 
         board_state_dict = game.get_state()
-        # Create readable board state string
-        units_str = "\n".join([f"  {p}: {', '.join(u)}" for p, u in board_state_dict.get('units', {}).items()])
-        centers_str = "\n".join([f"  {p}: {', '.join(c)}" for p, c in board_state_dict.get('centers', {}).items()])
-        board_state_str = f"Units:\n{units_str}\n\nSupply Centers:\n{centers_str}"
+        board_state_str = f"Units: {board_state_dict.get('units', {})}, Centers: {board_state_dict.get('centers', {})}"
         
         orders_list_str = "\n".join([f"- {o}" for o in orders]) if orders else "No orders submitted."
         
@@ -939,15 +933,12 @@ class DiplomacyAgent:
             other_powers = [p for p in game.powers if p != power_name]
             
             # Create a readable board state string from the board_state dict
-            board_state_str = "Units:\n"
-            for p_name, units in board_state.get('units', {}).items():
-                units_str = ", ".join(units) if units else "None"
-                board_state_str += f"  {p_name}: {units_str}\n"
-            
-            board_state_str += "\nSupply Centers:\n"
-            for p_name, centers in board_state.get('centers', {}).items():
-                centers_str = ", ".join(centers) if centers else "None"
-                board_state_str += f"  {p_name}: {centers_str}\n"
+            board_state_str = f"Board State:\n"
+            for p_name, power_data in board_state.get('powers', {}).items():
+                # Get units and centers from the board state
+                units = power_data.get('units', [])
+                centers = power_data.get('centers', [])
+                board_state_str += f"  {p_name}: Units={units}, Centers={centers}\n"
             
             # Extract year from the phase name (e.g., "S1901M" -> "1901")
             current_year = last_phase_name[1:5] if len(last_phase_name) >= 5 else "unknown"

@@ -464,49 +464,32 @@ class BaseModelClient:
         agent_relationships: Optional[Dict[str, str]] = None,
         agent_private_diary_str: Optional[str] = None, # Added
     ) -> str:
+        # MINIMAL CHANGE: Just change to load unformatted version
         instructions = load_prompt("unformatted/conversation_instructions.txt", prompts_dir=self.prompts_dir)
-        
-        # Load conversation-specific context template
-        context_template = load_prompt("unformatted/conversation_context.txt", prompts_dir=self.prompts_dir)
-        
-        # Get phase info
-        current_phase = game.get_current_phase()
-        
-        # Get active powers
-        active_powers = [p for p in game.powers.keys() if not game.powers[p].is_eliminated()]
-        eliminated_powers = [p for p in game.powers.keys() if game.powers[p].is_eliminated()]
-        eliminated_status = f"Eliminated: {', '.join(eliminated_powers)}" if eliminated_powers else "No powers eliminated yet"
-        
-        # Get messages this round
-        messages_this_round = game_history.get_messages_this_round(
-            power_name=power_name,
-            current_phase_name=game.current_short_phase
-        )
-        if not messages_this_round.strip():
-            messages_this_round = "(No messages exchanged yet this round)"
-        
-        # Format the context
-        context = context_template.format(
-            power_name=power_name,
-            current_phase=current_phase,
-            agent_goals="\n".join(f"- {g}" for g in agent_goals) if agent_goals else "- Survive and expand",
-            agent_relationships="\n".join(f"- {p}: {r}" for p, r in agent_relationships.items()) if agent_relationships else "- All powers: Neutral",
-            recent_private_diary=agent_private_diary_str[-500:] if agent_private_diary_str else "(No recent diary entries)",  # Last 500 chars
-            messages_this_round=messages_this_round,
-            active_powers=", ".join(active_powers),
-            eliminated_status=eliminated_status
+
+        # KEEP ORIGINAL: Use build_context_prompt as before
+        context = build_context_prompt(
+            game,
+            board_state,
+            power_name,
+            possible_orders,
+            game_history,
+            agent_goals=agent_goals,
+            agent_relationships=agent_relationships,
+            agent_private_diary=agent_private_diary_str, # Pass diary string
+            prompts_dir=self.prompts_dir,
         )
         
-        # Get recent messages targeting this power to prioritize responses
+        # KEEP ORIGINAL: Get recent messages targeting this power to prioritize responses
         recent_messages_to_power = game_history.get_recent_messages_to_power(power_name, limit=3)
         
-        # Debug logging to verify messages
+        # KEEP ORIGINAL: Debug logging to verify messages
         logger.info(f"[{power_name}] Found {len(recent_messages_to_power)} high priority messages to respond to")
         if recent_messages_to_power:
             for i, msg in enumerate(recent_messages_to_power):
                 logger.info(f"[{power_name}] Priority message {i+1}: From {msg['sender']} in {msg['phase']}: {msg['content'][:50]}...")
         
-        # Add a section for unanswered messages
+        # KEEP ORIGINAL: Add a section for unanswered messages
         unanswered_messages = "\n\nRECENT MESSAGES REQUIRING YOUR ATTENTION:\n"
         if recent_messages_to_power:
             for msg in recent_messages_to_power:

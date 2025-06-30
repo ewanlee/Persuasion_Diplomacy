@@ -6,7 +6,7 @@ Required JSON format:
 {
   "negotiation_summary": "Key outcomes from negotiations - what was discussed and agreed",
   "intent": "Strategic intent for upcoming orders based on negotiations",
-  "current_relationships": {
+  "updated_relationships": {
     "AUSTRIA": "Enemy|Unfriendly|Neutral|Friendly|Ally",
     "ENGLAND": "Enemy|Unfriendly|Neutral|Friendly|Ally",
     "FRANCE": "Enemy|Unfriendly|Neutral|Friendly|Ally",
@@ -23,7 +23,7 @@ Scenario 1 - Alliance forming:
 {
   "negotiation_summary": "Reached agreement with Italy for DMZ in Piedmont and mutual support against Austria. England remains non-committal about channel.",
   "intent": "Will honor DMZ with Italy and support their move to Trieste while securing Belgium",
-  "current_relationships": {
+  "updated_relationships": {
     "ITALY": "Friendly",
     "ENGLAND": "Neutral",
     "AUSTRIA": "Unfriendly"
@@ -34,7 +34,7 @@ Scenario 2 - Detecting deception:
 {
   "negotiation_summary": "Germany claims they'll support me into Belgium but also told England they'd help them. Russia suspiciously quiet.",
   "intent": "Assume Germany is unreliable, prepare defensive positions",
-  "current_relationships": {
+  "updated_relationships": {
     "GERMANY": "Unfriendly",
     "RUSSIA": "Neutral"
   }
@@ -44,7 +44,7 @@ Scenario 3 - Coordinated attack:
 {
   "negotiation_summary": "Coordinated joint attack on Turkey with Austria. Russia agrees to DMZ Black Sea.",
   "intent": "Execute agreed plan: Army Greece to Bulgaria, Fleet Aegean to Eastern Med",
-  "current_relationships": {
+  "updated_relationships": {
     "AUSTRIA": "Ally",
     "RUSSIA": "Friendly",
     "TURKEY": "Enemy"
@@ -58,7 +58,7 @@ Instructions:
 - intent: What will the player do based on these negotiations?
   - Look for: planned moves, strategies, responses to agreements
   - Common phrases: "I will", "plan to", "intend to", "based on this"
-- current_relationships: Your assessment of ALL powers after negotiations
+- updated_relationships: Your assessment of ALL powers after negotiations
   - Include ALL 7 powers (remove yourself from the list)
   - Reflect any changes from negotiations
   - Use ONLY: Enemy, Unfriendly, Neutral, Friendly, or Ally

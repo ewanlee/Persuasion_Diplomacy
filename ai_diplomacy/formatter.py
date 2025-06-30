@@ -113,15 +113,15 @@ async def format_with_gemini_flash(
         
         # Log if requested
         if log_file_path:
-            await log_llm_response(
+            log_llm_response(
                 log_file_path=log_file_path,
                 model_name=model_name,
                 power_name=power_name or "FORMATTER",
                 phase=phase or "N/A",
                 response_type=f"format_{format_type}",
-                prompt=format_prompt,
+                raw_input_prompt=format_prompt,
                 raw_response=formatted_response,
-                temperature=0
+                success="Success"
             )
         
         return formatted_response
@@ -131,15 +131,15 @@ async def format_with_gemini_flash(
         
         # Log error if requested
         if log_file_path:
-            await log_llm_response(
+            log_llm_response(
                 log_file_path=log_file_path,
                 model_name=model_name,
                 power_name=power_name or "FORMATTER",
                 phase=phase or "N/A",
                 response_type=f"format_{format_type}",
-                prompt=format_prompt,
+                raw_input_prompt=format_prompt,
                 raw_response=f"ERROR: {str(e)}",
-                temperature=0
+                success=f"Failure: {type(e).__name__}"
             )
         
         # Return empty structure based on format type
