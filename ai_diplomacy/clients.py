@@ -23,7 +23,7 @@ from .game_history import GameHistory
 from .utils import load_prompt, run_llm_and_log, log_llm_response, generate_random_seed, get_prompt_path
 # Import DiplomacyAgent for type hinting if needed, but avoid circular import if possible
 from .prompt_constructor import construct_order_generation_prompt, build_context_prompt
-from .formatter import format_with_gemini_flash, FORMAT_ORDERS, FORMAT_CONVERSATION
+# Moved formatter imports to avoid circular import - imported locally where needed
 
 # set logger back to just info
 logger = logging.getLogger("client")
@@ -124,6 +124,8 @@ class BaseModelClient:
 
             # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
             if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+                # Local import to avoid circular dependency
+                from .formatter import format_with_gemini_flash, FORMAT_ORDERS
                 # Format the natural language response into structured format
                 formatted_response = await format_with_gemini_flash(
                     raw_response, 
@@ -593,6 +595,8 @@ class BaseModelClient:
             
             # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
             if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+                # Local import to avoid circular dependency
+                from .formatter import format_with_gemini_flash, FORMAT_CONVERSATION
                 # Format the natural language response into structured JSON
                 formatted_response = await format_with_gemini_flash(
                     raw_response, 
