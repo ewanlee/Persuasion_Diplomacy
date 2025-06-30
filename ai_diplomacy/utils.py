@@ -84,6 +84,33 @@ def assign_models_to_powers() -> Dict[str, str]:
         "RUSSIA": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
         "TURKEY": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
     }
+
+
+def get_special_models() -> Dict[str, str]:
+    """
+    Define models for special purposes like phase summaries and formatting.
+    
+    These can be overridden via environment variables:
+    - AI_DIPLOMACY_NARRATIVE_MODEL: Model for phase summaries (default: "o3")
+    - AI_DIPLOMACY_FORMATTER_MODEL: Model for JSON formatting (default: "google/gemini-2.5-flash-lite-preview-06-17")
+    
+    Returns:
+        dict: {
+            "phase_summary": model for generating narrative phase summaries,
+            "formatter": model for formatting natural language to JSON
+        }
+    
+    Examples:
+        # Use Claude for phase summaries
+        export AI_DIPLOMACY_NARRATIVE_MODEL="claude-3-5-sonnet-20241022"
+        
+        # Use a different Gemini model for formatting
+        export AI_DIPLOMACY_FORMATTER_MODEL="gemini-2.0-flash"
+    """
+    return {
+        "phase_summary": os.getenv("AI_DIPLOMACY_NARRATIVE_MODEL", "openrouter-google/gemini-2.5-flash-preview-05-20"),
+        "formatter": os.getenv("AI_DIPLOMACY_FORMATTER_MODEL", "google/gemini-2.5-flash-lite-preview-06-17"),
+    }
     
     
 
@@ -401,3 +428,18 @@ def generate_random_seed(n_lines: int = 5, n_chars_per_line: int = 80):
             "\n</RANDOM SEED>"
         )
         return random_seed_block
+
+
+def get_prompt_path(prompt_name: str) -> str:
+    """Get the appropriate prompt path based on USE_UNFORMATTED_PROMPTS setting.
+    
+    Args:
+        prompt_name: Base name of the prompt file (e.g., "conversation_instructions.txt")
+        
+    Returns:
+        str: Either "unformatted/{prompt_name}" or just "{prompt_name}"
+    """
+    if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+        return f"unformatted/{prompt_name}"
+    else:
+        return prompt_name

@@ -10,7 +10,7 @@ import ast # For literal_eval
 # Assuming BaseModelClient is importable from clients.py in the same directory
 from .clients import BaseModelClient, load_model_client 
 # Import load_prompt and the new logging wrapper from utils
-from .utils import load_prompt, run_llm_and_log, log_llm_response
+from .utils import load_prompt, run_llm_and_log, log_llm_response, get_prompt_path
 from .prompt_constructor import build_context_prompt # Added import
 from .clients import GameHistory
 from diplomacy import Game
@@ -426,10 +426,10 @@ class DiplomacyAgent:
         success_status = "Failure: Initialized" # Default
 
         try:
-            # Load the unformatted template file
-            prompt_template_content = _load_prompt_file('unformatted/negotiation_diary_prompt.txt', prompts_dir=self.prompts_dir)
+            # Load the prompt template file
+            prompt_template_content = _load_prompt_file(get_prompt_path('negotiation_diary_prompt.txt'), prompts_dir=self.prompts_dir)
             if not prompt_template_content:
-                logger.error(f"[{self.power_name}] Could not load unformatted/negotiation_diary_prompt.txt. Skipping diary entry.")
+                logger.error(f"[{self.power_name}] Could not load {get_prompt_path('negotiation_diary_prompt.txt')}. Skipping diary entry.")
                 success_status = "Failure: Prompt file not loaded"
                 return # Exit early if prompt can't be loaded
 
@@ -527,14 +527,19 @@ class DiplomacyAgent:
 
             parsed_data = None
             try:
-                # Format the natural language response into JSON
-                formatted_response = await format_with_gemini_flash(
-                    raw_response, 
-                    FORMAT_NEGOTIATION_DIARY,
-                    power_name=self.power_name,
-                    phase=game.current_short_phase,
-                    log_file_path=log_file_path
-                )
+                # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
+                if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+                    # Format the natural language response into JSON
+                    formatted_response = await format_with_gemini_flash(
+                        raw_response, 
+                        FORMAT_NEGOTIATION_DIARY,
+                        power_name=self.power_name,
+                        phase=game.current_short_phase,
+                        log_file_path=log_file_path
+                    )
+                else:
+                    # Use the raw response directly (already formatted)
+                    formatted_response = raw_response
                 parsed_data = self._extract_json_from_text(formatted_response)
                 logger.debug(f"[{self.power_name}] Parsed diary data: {parsed_data}")
                 success_status = "Success: Parsed diary data"
@@ -635,10 +640,10 @@ class DiplomacyAgent:
         """
         logger.info(f"[{self.power_name}] Generating order diary entry for {game.current_short_phase}...")
         
-        # Load the unformatted template for better content generation
-        prompt_template = _load_prompt_file('unformatted/order_diary_prompt.txt', prompts_dir=self.prompts_dir)
+        # Load the prompt template
+        prompt_template = _load_prompt_file(get_prompt_path('order_diary_prompt.txt'), prompts_dir=self.prompts_dir)
         if not prompt_template:
-            logger.error(f"[{self.power_name}] Could not load unformatted/order_diary_prompt.txt. Skipping diary entry.")
+            logger.error(f"[{self.power_name}] Could not load {get_prompt_path('order_diary_prompt.txt')}. Skipping diary entry.")
             return
 
         board_state_dict = game.get_state()
@@ -709,14 +714,19 @@ class DiplomacyAgent:
 
             if raw_response:
                 try:
-                    # Format the natural language response into JSON
-                    formatted_response = await format_with_gemini_flash(
-                        raw_response, 
-                        FORMAT_ORDER_DIARY,
-                        power_name=self.power_name,
-                        phase=game.current_short_phase,
-                        log_file_path=log_file_path
-                    )
+                    # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
+                    if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+                        # Format the natural language response into JSON
+                        formatted_response = await format_with_gemini_flash(
+                            raw_response, 
+                            FORMAT_ORDER_DIARY,
+                            power_name=self.power_name,
+                            phase=game.current_short_phase,
+                            log_file_path=log_file_path
+                        )
+                    else:
+                        # Use the raw response directly (already formatted)
+                        formatted_response = raw_response
                     response_data = self._extract_json_from_text(formatted_response)
                     if response_data:
                         # Directly attempt to get 'order_summary' as per the prompt
@@ -892,9 +902,9 @@ class DiplomacyAgent:
 
         try:
             # 1. Construct the prompt using the unformatted state update prompt file
-            prompt_template = _load_prompt_file('unformatted/state_update_prompt.txt', prompts_dir=self.prompts_dir)
+            prompt_template = _load_prompt_file(get_prompt_path('state_update_prompt.txt'), prompts_dir=self.prompts_dir)
             if not prompt_template:
-                 logger.error(f"[{power_name}] Could not load unformatted/state_update_prompt.txt. Skipping state update.")
+                 logger.error(f"[{power_name}] Could not load {get_prompt_path('state_update_prompt.txt')}. Skipping state update.")
                  return
  
             # Get previous phase safely from history
@@ -973,14 +983,19 @@ class DiplomacyAgent:
 
             if response is not None and response.strip(): # Check if response is not None and not just whitespace
                 try:
-                    # Format the natural language response into JSON
-                    formatted_response = await format_with_gemini_flash(
-                        response, 
-                        FORMAT_STATE_UPDATE,
-                        power_name=power_name,
-                        phase=current_phase,
-                        log_file_path=log_file_path
-                    )
+                    # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
+                    if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+                        # Format the natural language response into JSON
+                        formatted_response = await format_with_gemini_flash(
+                            response, 
+                            FORMAT_STATE_UPDATE,
+                            power_name=power_name,
+                            phase=current_phase,
+                            log_file_path=log_file_path
+                        )
+                    else:
+                        # Use the raw response directly (already formatted)
+                        formatted_response = response
                     update_data = self._extract_json_from_text(formatted_response)
                     logger.debug(f"[{power_name}] Successfully parsed JSON: {update_data}")
                     

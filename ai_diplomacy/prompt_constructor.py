@@ -4,7 +4,7 @@ Module for constructing prompts for LLM interactions in the Diplomacy game.
 import logging
 from typing import Dict, List, Optional, Any # Added Any for game type placeholder
 
-from .utils import load_prompt
+from .utils import load_prompt, get_prompt_path
 from .possible_order_context import (
     generate_rich_order_context,
     generate_rich_order_context_xml,
@@ -187,13 +187,13 @@ def construct_order_generation_prompt(
     # Pick the phase-specific instruction file (using unformatted versions)
     phase_code = board_state["phase"][-1]          # 'M' (movement), 'R', or 'A' / 'B'
     if phase_code == "M":
-        instructions_file = "unformatted/order_instructions_movement_phase.txt"
+        instructions_file = get_prompt_path("order_instructions_movement_phase.txt")
     elif phase_code in ("A", "B"):                 # builds / adjustments
-        instructions_file = "unformatted/order_instructions_adjustment_phase.txt"
+        instructions_file = get_prompt_path("order_instructions_adjustment_phase.txt")
     elif phase_code == "R":                        # retreats
-        instructions_file = "unformatted/order_instructions_retreat_phase.txt"
+        instructions_file = get_prompt_path("order_instructions_retreat_phase.txt")
     else:                                          # unexpected – default to movement rules
-        instructions_file = "unformatted/order_instructions_movement_phase.txt"
+        instructions_file = get_prompt_path("order_instructions_movement_phase.txt")
 
     instructions = load_prompt(instructions_file, prompts_dir=prompts_dir)
     _use_simple = os.getenv("SIMPLE_PROMPTS", "0").lower() in {"1", "true", "yes"}

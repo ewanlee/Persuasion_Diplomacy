@@ -25,7 +25,6 @@ from ai_diplomacy.negotiations import conduct_negotiations
 from ai_diplomacy.planning import planning_phase
 from ai_diplomacy.game_history import GameHistory
 from ai_diplomacy.agent import DiplomacyAgent
-import ai_diplomacy.narrative
 from ai_diplomacy.game_logic import (
     save_game_state,
     load_game_state,
@@ -148,6 +147,28 @@ def parse_arguments():
             "When true (1 / true / yes) the engine switches to simpler prompts which low-midrange models handle better."
         ),
     )
+    parser.add_argument(
+        "--generate_phase_summaries",
+        type=_str2bool,
+        nargs="?",
+        const=True,
+        default=True,
+        help=(
+            "When true (1 / true / yes / default) generates narrative phase summaries. "
+            "Set to false (0 / false / no) to skip phase summary generation."
+        ),
+    )
+    parser.add_argument(
+        "--use_unformatted_prompts",
+        type=_str2bool,
+        nargs="?",
+        const=True,
+        default=True,
+        help=(
+            "When true (1 / true / yes / default) uses two-step approach: unformatted prompts + Gemini Flash formatting. "
+            "Set to false (0 / false / no) to use original single-step formatted prompts."
+        ),
+    )
 
     return parser.parse_args()
 
@@ -166,6 +187,21 @@ async def main():
     if args.prompts_dir and not os.path.isdir(args.prompts_dir):
         print(f"ERROR: Prompts directory not found: {args.prompts_dir}", file=sys.stderr)
         sys.exit(1)
+
+    # Handle phase summaries flag - import narrative module only if enabled
+    if args.generate_phase_summaries:
+        import ai_diplomacy.narrative
+        logger.info("Phase summary generation enabled")
+    else:
+        logger.info("Phase summary generation disabled")
+
+    # Handle unformatted prompts flag
+    if args.use_unformatted_prompts:
+        os.environ["USE_UNFORMATTED_PROMPTS"] = "1"
+        logger.info("Using two-step approach: unformatted prompts + Gemini Flash formatting")
+    else:
+        os.environ["USE_UNFORMATTED_PROMPTS"] = "0"
+        logger.info("Using original single-step formatted prompts")
 
     # --- 1. Determine Run Directory and Mode (New vs. Resume) ---
     run_dir = args.run_dir

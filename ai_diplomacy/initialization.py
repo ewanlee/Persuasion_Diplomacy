@@ -1,6 +1,7 @@
 # ai_diplomacy/initialization.py
 import logging
 import json
+import os
 from typing import Optional
 
 # Forward declaration for type hinting, actual imports in function if complex
@@ -10,7 +11,7 @@ if False: # TYPE_CHECKING
     from .agent import DiplomacyAgent
 
 from .agent import ALL_POWERS, ALLOWED_RELATIONSHIPS, _load_prompt_file
-from .utils import run_llm_and_log, log_llm_response
+from .utils import run_llm_and_log, log_llm_response, get_prompt_path
 from .prompt_constructor import build_context_prompt
 from .formatter import format_with_gemini_flash, FORMAT_INITIAL_STATE
 
@@ -33,11 +34,11 @@ async def initialize_agent_state_ext(
     success_status = "Failure: Initialized" # Default status
 
     try:
-        # Load the unformatted prompt template
+        # Load the prompt template
         allowed_labels_str = ", ".join(ALLOWED_RELATIONSHIPS)
-        initial_prompt_template = _load_prompt_file('unformatted/initial_state_prompt.txt', prompts_dir=prompts_dir)
+        initial_prompt_template = _load_prompt_file(get_prompt_path('initial_state_prompt.txt'), prompts_dir=prompts_dir)
         if not initial_prompt_template:
-            logger.error(f"[{power_name}] Could not load unformatted/initial_state_prompt.txt. Cannot initialize.")
+            logger.error(f"[{power_name}] Could not load {get_prompt_path('initial_state_prompt.txt')}. Cannot initialize.")
             return
         
         # Format the prompt with variables
@@ -80,14 +81,19 @@ async def initialize_agent_state_ext(
 
         parsed_successfully = False
         try:
-            # Format the natural language response into JSON
-            formatted_response = await format_with_gemini_flash(
-                response, 
-                FORMAT_INITIAL_STATE,
-                power_name=power_name,
-                phase=current_phase,
-                log_file_path=log_file_path
-            )
+            # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
+            if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+                # Format the natural language response into JSON
+                formatted_response = await format_with_gemini_flash(
+                    response, 
+                    FORMAT_INITIAL_STATE,
+                    power_name=power_name,
+                    phase=current_phase,
+                    log_file_path=log_file_path
+                )
+            else:
+                # Use the raw response directly (already formatted)
+                formatted_response = response
             update_data = agent._extract_json_from_text(formatted_response)
             logger.debug(f"[{power_name}] Successfully parsed JSON: {update_data}")
             parsed_successfully = True

@@ -20,7 +20,7 @@ from together.error import APIError as TogetherAPIError # For specific error han
 
 from diplomacy.engine.message import GLOBAL
 from .game_history import GameHistory
-from .utils import load_prompt, run_llm_and_log, log_llm_response, generate_random_seed
+from .utils import load_prompt, run_llm_and_log, log_llm_response, generate_random_seed, get_prompt_path
 # Import DiplomacyAgent for type hinting if needed, but avoid circular import if possible
 from .prompt_constructor import construct_order_generation_prompt, build_context_prompt
 from .formatter import format_with_gemini_flash, FORMAT_ORDERS, FORMAT_CONVERSATION
@@ -122,14 +122,19 @@ class BaseModelClient:
                 f"[{self.model_name}] Raw LLM response for {power_name} orders:\n{raw_response}"
             )
 
-            # Format the natural language response into structured format
-            formatted_response = await format_with_gemini_flash(
-                raw_response, 
-                FORMAT_ORDERS,
-                power_name=power_name,
-                phase=phase,
-                log_file_path=log_file_path
-            )
+            # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
+            if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+                # Format the natural language response into structured format
+                formatted_response = await format_with_gemini_flash(
+                    raw_response, 
+                    FORMAT_ORDERS,
+                    power_name=power_name,
+                    phase=phase,
+                    log_file_path=log_file_path
+                )
+            else:
+                # Use the raw response directly (already formatted)
+                formatted_response = raw_response
             
             # Attempt to parse the final "orders" from the formatted response
             move_list = self._extract_moves(formatted_response, power_name)
@@ -464,8 +469,8 @@ class BaseModelClient:
         agent_relationships: Optional[Dict[str, str]] = None,
         agent_private_diary_str: Optional[str] = None, # Added
     ) -> str:
-        # MINIMAL CHANGE: Just change to load unformatted version
-        instructions = load_prompt("unformatted/conversation_instructions.txt", prompts_dir=self.prompts_dir)
+        # MINIMAL CHANGE: Just change to load unformatted version conditionally
+        instructions = load_prompt(get_prompt_path("conversation_instructions.txt"), prompts_dir=self.prompts_dir)
 
         # KEEP ORIGINAL: Use build_context_prompt as before
         context = build_context_prompt(
@@ -586,14 +591,19 @@ class BaseModelClient:
             )
             logger.debug(f"[{self.model_name}] Raw LLM response for {power_name}:\n{raw_response}")
             
-            # Format the natural language response into structured JSON
-            formatted_response = await format_with_gemini_flash(
-                raw_response, 
-                FORMAT_CONVERSATION,
-                power_name=power_name,
-                phase=game_phase,
-                log_file_path=log_file_path
-            )
+            # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
+            if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+                # Format the natural language response into structured JSON
+                formatted_response = await format_with_gemini_flash(
+                    raw_response, 
+                    FORMAT_CONVERSATION,
+                    power_name=power_name,
+                    phase=game_phase,
+                    log_file_path=log_file_path
+                )
+            else:
+                # Use the raw response directly (already formatted)
+                formatted_response = raw_response
             
             parsed_messages = []
             json_blocks = []

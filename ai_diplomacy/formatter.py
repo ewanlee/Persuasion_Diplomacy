@@ -8,10 +8,11 @@ import logging
 import os
 from typing import Dict, Any, Optional
 from pathlib import Path
-from openai import AsyncOpenAI
 
-# Import logging function
-from .utils import log_llm_response
+# Import logging function and model configuration
+from .utils import log_llm_response, get_special_models
+# Import client loading function
+from .clients import load_model_client
 
 logger = logging.getLogger(__name__)
 
@@ -68,36 +69,30 @@ async def format_with_gemini_flash(
     # Replace placeholder with actual response
     format_prompt = format_prompt.replace("[RAW_RESPONSE]", raw_response)
     
-    # Initialize OpenRouter client for Gemini Flash
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise ValueError("OPENROUTER_API_KEY environment variable is required")
-        
-    client = AsyncOpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=api_key
-    )
+    # Get model name from configuration
+    special_models = get_special_models()
+    model_name = special_models["formatter"]
     
-    model_name = "google/gemini-2.5-flash-lite-preview-06-17"
+    # Load the formatter client using the same logic as other models
+    formatter_client = load_model_client(model_name)
     
     try:
-        logger.info(f"[FORMATTER] Calling Gemini Flash for {format_type} formatting")
+        logger.info(f"[FORMATTER] Calling {model_name} for {format_type} formatting")
         
-        response = await client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": "You are a precise formatting assistant. Extract and format information exactly as requested."},
-                {"role": "user", "content": format_prompt}
-            ],
-            max_tokens=4096,
+        # Create the full prompt with system message
+        system_content = "You are a precise formatting assistant. Extract and format information exactly as requested."
+        formatter_client.set_system_prompt(system_content)
+        
+        # Use the client's generate_response method
+        formatted_response = await formatter_client.generate_response(
+            prompt=format_prompt,
             temperature=0,  # Deterministic formatting
+            inject_random_seed=False  # No need for random seed in formatting
         )
         
-        if not response.choices:
-            logger.warning(f"[FORMATTER] OpenRouter returned no choices")
+        if not formatted_response:
+            logger.warning(f"[FORMATTER] {model_name} returned empty response")
             return ""
-            
-        formatted_response = response.choices[0].message.content
         
         # Log successful formatting
         logger.info(f"[FORMATTER] Successfully formatted {format_type} response")
