@@ -2,15 +2,19 @@
 experiment_runner.analysis.compare_stats
 ----------------------------------------
 
-Compares two completed Diplomacy experiments.  Console output now
-shows *all* metrics whose 95 % CI excludes 0 (α = 0.05 by default).
+Compares two completed Diplomacy experiments, printing every metric
+whose confidence interval (1 – α) excludes 0.
 
-CSV files remain:
+Derived “maximum‐ever” metrics
+• max_supply_centers_owned       – per-power max across phases
+• max_territories_controlled     – per-power max across phases
+• max_military_units             – per-power max across phases
+• max_game_score                 – *game-level* max across powers
+  (only used in the aggregated-across-powers comparison)
 
-    <expA>/analysis/comparison/
-        comparison_aggregated_vs_<expB>.csv
-        comparison_by_power_vs_<expB>.csv
+All CLI semantics, CSV outputs, significance tests, etc., remain intact.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -29,19 +33,86 @@ _EXCLUDE: set[str] = {
     "analyzed_response_type",
 }
 
+# Metrics that should use MAX when collapsing to one value per game
+_MAX_METRICS: set[str] = {
+    "max_supply_centers_owned",
+    "max_territories_controlled",
+    "max_game_score",          # derived below
+    "max_military_units",
+}
+
+# Metrics that are *not* shown in the per-power breakdown
+_PER_POWER_SKIP: set[str] = {
+    "max_game_score",          # meaningful only at game level
+}
+
 
 def _numeric_columns(df: pd.DataFrame) -> List[str]:
     return [c for c in df.select_dtypes("number").columns if c not in _EXCLUDE]
 
 
+# ──────────────────────── data loading ───────────────────────
 def _load_games(exp: Path) -> pd.DataFrame:
-    indiv = exp / "analysis" / "statistical_game_analysis" / "individual"
-    csvs = list(indiv.glob("*_game_analysis.csv"))
-    if not csvs:
-        raise FileNotFoundError(f"no *_game_analysis.csv under {indiv}")
-    return pd.concat((pd.read_csv(p) for p in csvs), ignore_index=True)
+    """
+    Return a DataFrame with one row per (game_id, power_name) containing
+    all numeric columns from *_game_analysis.csv plus these derived
+    columns:
+
+        max_supply_centers_owned
+        max_territories_controlled
+        max_military_units   (all per-power maxima across phases)
+
+        max_game_score       (max across powers within the game)
+
+    The phase files live under .../analysis/** and are searched
+    recursively so the script works with both “individual” and
+    “combined” layouts.
+    """
+    root = exp / "analysis"
+
+    # ---------- game-level CSVs ---------------------------------
+    game_csvs = list(root.rglob("*_game_analysis.csv"))
+    if not game_csvs:
+        raise FileNotFoundError(f"no *_game_analysis.csv found under {root}")
+    df_game = pd.concat((pd.read_csv(p) for p in game_csvs), ignore_index=True)
+
+    # ---------- derive max_game_score ---------------------------
+    if "game_score" in df_game.columns:
+        df_game["max_game_score"] = (
+            df_game.groupby("game_id")["game_score"].transform("max")
+        )
+    else:
+        df_game["max_game_score"] = np.nan
+
+    # ---------- phase-level maxima for the other three ----------
+    phase_csvs = list(root.rglob("*_phase_analysis.csv"))
+    if phase_csvs:
+        df_phase = pd.concat((pd.read_csv(p) for p in phase_csvs), ignore_index=True)
+
+        mapping = {
+            "supply_centers_owned_count": "max_supply_centers_owned",
+            "territories_controlled_count": "max_territories_controlled",
+            "military_units_count": "max_military_units",
+        }
+        present = [c for c in mapping if c in df_phase.columns]
+        if present:
+            max_df = (
+                df_phase.groupby(["game_id", "power_name"])[present]
+                .max()
+                .rename(columns={c: mapping[c] for c in present})
+                .reset_index()
+            )
+            df_game = df_game.merge(max_df, on=["game_id", "power_name"], how="left")
+
+    # ensure all four columns exist
+    for col in _MAX_METRICS:
+        if col not in df_game.columns:
+            df_game[col] = np.nan
+
+    return df_game
 
 
+# ───────────────────── Welch statistics ──────────────────────
 def _welch(a: np.ndarray, b: np.ndarray, alpha: float) -> Dict:
     _t, p_val = stats.ttest_ind(a, b, equal_var=False)
     mean_a, mean_b = a.mean(), b.mean()
@@ -64,14 +135,14 @@ def _welch(a: np.ndarray, b: np.ndarray, alpha: float) -> Dict:
     }
 
 
-# ───────────────────────── console formatting ─────────────────────────
-def _fmt_row(label: str, r: Dict, width: int) -> str:
+# ───────────────── console helpers ───────────────────────────
+def _fmt_row(label: str, r: Dict, width: int, ci_label: str) -> str:
     ci = f"[{r['CI_low']:+.2f}, {r['CI_high']:+.2f}]"
     return (
         f"  {label:<{width}} "
         f"{r['Diff']:+6.2f}  "
         f"({r['Mean_A']:.2f} → {r['Mean_B']:.2f})   "
-        f"95%CI {ci:<17}  "
+        f"{ci_label} {ci:<17}  "
         f"p={r['p_value']:.4g}   "
         f"d={r['Cohen_d']:+.2f}"
     )
@@ -83,13 +154,12 @@ def _print_hdr(title: str) -> None:
 
 
 def _significant(df: pd.DataFrame, alpha: float) -> pd.DataFrame:
-    """Return rows whose CI excludes 0 (equivalently p < alpha)."""
-    sig = df[
+    keep = (
         ((df["CI_low"] > 0) & (df["CI_high"] > 0))
         | ((df["CI_low"] < 0) & (df["CI_high"] < 0))
-        | (df["p_value"] < alpha)  # fallback, same criterion
-    ].copy()
-    return sig.sort_values("p_value").reset_index(drop=True)
+        | (df["p_value"] < alpha)
+    )
+    return df[keep].sort_values("p_value").reset_index(drop=True)
 
 
 # ───────────────────────── public API ─────────────────────────
@@ -102,39 +172,53 @@ def run(exp_a: Path, exp_b: Path, alpha: float = 0.05) -> None:
         print("No overlapping numeric metrics to compare.")
         return
 
+    ci_pct = int(round((1 - alpha) * 100))
+    ci_label = f"{ci_pct}%CI"
+    tag_a = exp_a.name or str(exp_a)
+    tag_b = exp_b.name or str(exp_b)
+
     out_dir = exp_a / "analysis" / "comparison"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── section 1: aggregated across powers ───────────────────────────
+    # ── section 1: aggregated across powers ───────────────────
     rows_agg: List[Dict] = []
     for col in metrics:
-        a_vals = df_a.groupby("game_id")[col].mean().dropna().to_numpy()
-        b_vals = df_b.groupby("game_id")[col].mean().dropna().to_numpy()
+        agg_fn = "max" if col in _MAX_METRICS else "mean"
+        a_vals = df_a.groupby("game_id")[col].agg(agg_fn).dropna().to_numpy()
+        b_vals = df_b.groupby("game_id")[col].agg(agg_fn).dropna().to_numpy()
         if len(a_vals) < 2 or len(b_vals) < 2:
             continue
         rows_agg.append({"Metric": col, **_welch(a_vals, b_vals, alpha)})
 
     agg_df = pd.DataFrame(rows_agg)
-    agg_csv = out_dir / f"comparison_aggregated_vs_{exp_b.name}.csv"
+    agg_csv = out_dir / f"comparison_aggregated_vs_{tag_b}.csv"
     agg_df.to_csv(agg_csv, index=False)
 
-    sig_agg = _significant(agg_df, alpha)
-    if not sig_agg.empty:
-        n_a, n_b = int(sig_agg.iloc[0]["n_A"]), int(sig_agg.iloc[0]["n_B"])
-        _print_hdr(f"Aggregated Across Powers – significant at 95 % CI (nA={n_a}, nB={n_b})")
-        label_w = max(len(m) for m in sig_agg["Metric"]) + 2
-        for _, r in sig_agg.iterrows():
-            print(_fmt_row(r["Metric"], r, label_w))
-    else:
-        _print_hdr("Aggregated Across Powers – no metric significant at 95 % CI")
+    print("\n\n")
+    print(f"Comparing {tag_a} to {tag_b}: All comparisons are [{tag_b}] – [{tag_a}].")
 
-    # ── section 2: per-power breakdown ───────────────────────────────
+    sig_agg = _significant(agg_df, alpha)
+    if sig_agg.empty:
+        _print_hdr(f"Aggregated Across Powers – no metric significant at {ci_pct}% CI")
+    else:
+        n_a, n_b = int(sig_agg.iloc[0]["n_A"]), int(sig_agg.iloc[0]["n_B"])
+        _print_hdr(
+            f"Aggregated Across Powers – significant at {ci_pct}% "
+            f"(n({tag_a})={n_a}, n({tag_b})={n_b})"
+        )
+        width = max(len(m) for m in sig_agg["Metric"]) + 2
+        for _, r in sig_agg.iterrows():
+            print(_fmt_row(r["Metric"], r, width, ci_label))
+
+    # ── section 2: per-power breakdown ────────────────────────
     rows_pow: List[Dict] = []
     powers = sorted(set(df_a["power_name"]) & set(df_b["power_name"]))
     for power in powers:
         sub_a = df_a[df_a["power_name"] == power]
         sub_b = df_b[df_b["power_name"] == power]
         for col in metrics:
+            if col in _PER_POWER_SKIP:
+                continue
             a_vals = sub_a[col].dropna().to_numpy()
             b_vals = sub_b[col].dropna().to_numpy()
             if len(a_vals) < 2 or len(b_vals) < 2:
@@ -144,25 +228,27 @@ def run(exp_a: Path, exp_b: Path, alpha: float = 0.05) -> None:
             )
 
     pow_df = pd.DataFrame(rows_pow)
-    pow_csv = out_dir / f"comparison_by_power_vs_{exp_b.name}.csv"
+    pow_csv = out_dir / f"comparison_by_power_vs_{tag_b}.csv"
     pow_df.to_csv(pow_csv, index=False)
 
     sig_pow = _significant(pow_df, alpha)
-    if not sig_pow.empty:
-        _print_hdr(f"Per-Power Breakdown – metrics significant at 95 % CI (α={alpha})")
-        label_w = max(len(m) for m in sig_pow["Metric"]) + 2
+    if sig_pow.empty:
+        _print_hdr(f"Per-Power Breakdown – no metric significant at {ci_pct}% CI")
+    else:
+        _print_hdr(
+            f"Per-Power Breakdown – metrics significant at {ci_pct}% CI (α={alpha})"
+        )
+        width = max(len(m) for m in sig_pow["Metric"]) + 2
         for power in powers:
             sub = sig_pow[sig_pow["Power"] == power]
             if sub.empty:
                 continue
             n_a, n_b = int(sub.iloc[0]["n_A"]), int(sub.iloc[0]["n_B"])
-            print(f"{power} (nA={n_a}, nB={n_b})")
+            print(f"{power} (n({tag_a})={n_a}, n({tag_b})={n_b})")
             for _, r in sub.iterrows():
-                print(_fmt_row(r["Metric"], r, label_w))
-    else:
-        _print_hdr("Per-Power Breakdown – no metric significant at 95 % CI")
+                print(_fmt_row(r["Metric"], r, width, ci_label))
 
-    # ── summary of file outputs ───────────────────────────────────────
+    # ── summary of output locations ───────────────────────────
     print("\nCSV outputs:")
     print(f"  • {agg_csv}")
     print(f"  • {pow_csv}")
