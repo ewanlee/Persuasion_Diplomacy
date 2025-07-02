@@ -81,6 +81,13 @@ class StatisticalGameAnalyzer:
             'AUSTRIA': 'AUSTRIA',  # Keep as-is
             'RUSSIA': 'RUSSIA',    # Keep as-is
             'TURKEY': 'TURKEY',    # Keep as-is
+            'Germany': 'GERMANY',
+            'England': 'ENGLAND',
+            'France': 'FRANCE',
+            'Italy': 'ITALY',
+            'Russia': 'RUSSIA',
+            'Austria': 'AUSTRIA',
+            'Turkey': 'TURKEY',    
         }
         
         normalized = name_mapping.get(recipient, recipient)

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import random
 import string
 import json
+import asyncio
 
 # Avoid circular import for type hinting
 if TYPE_CHECKING:
@@ -391,25 +392,51 @@ def log_llm_response(
         logger.error(f"Failed to log LLM response to {log_file_path}: {e}", exc_info=True)
 
 
-# == New Async LLM Wrapper with Logging ==
+
 async def run_llm_and_log(
-    client: 'BaseModelClient',
+    client: "BaseModelClient",
     prompt: str,
-    log_file_path: str,  # Kept for context, but not used for logging here
-    power_name: Optional[str], # Kept for context, but not used for logging here
-    phase: str, # Kept for context, but not used for logging here
-    response_type: str, # Kept for context, but not used for logging here
+    log_file_path: str,      # Kept for context, but not used for logging here
+    power_name: Optional[str],  # Kept for context, but not used for logging here
+    phase: str,                 # Kept for context, but not used for logging here
+    response_type: str,         # Kept for context, but not used for logging here
     temperature: float = 0.0,
+    *,
+    attempts: int = 5,
+    backoff_base: float = 1.0,
+    backoff_factor: float = 2.0,
+    jitter: float = 0.3,
 ) -> str:
-    """Calls the client's generate_response and returns the raw output. Logging is handled by the caller."""
-    raw_response = "" # Initialize in case of error
-    try:
-        raw_response = await client.generate_response(prompt, temperature=temperature)
-    except Exception as e:
-        # Log the API call error. The caller will decide how to log this in llm_responses.csv
-        logger.error(f"API Error during LLM call for {client.model_name}/{power_name}/{response_type} in phase {phase}: {e}", exc_info=True)
-        # raw_response remains "" indicating failure to the caller
+    """
+    Calls `client.generate_response` with retry logic and returns the raw output.
+
+    Logging behaviour is identical to the original implementation:
+    - On a final failure (after all retries), it logs a single error with the
+      same message format as before.
+    - If a retry eventually succeeds, no errors are logged.
+    """
+    raw_response = ""  # Initialize in case of error
+
+    for attempt in range(attempts):
+        try:
+            raw_response = await client.generate_response(prompt, temperature=temperature)
+            if not raw_response:
+                raise Exception("Empty response from client")
+            return raw_response
+        except Exception as e:
+            if attempt == attempts - 1:
+                logger.error(
+                    f"API Error during LLM call for {client.model_name}/{power_name}/{response_type} "
+                    f"in phase {phase}: {e}",
+                    exc_info=True,
+                )
+            # Back-off before the next attempt (unless this was the last)
+            delay = backoff_base * (backoff_factor ** attempt) + random.uniform(0, jitter)
+            await asyncio.sleep(delay)
+
     return raw_response
+
+
 
 # This generates a few lines of random alphanum chars to inject into the 
 # system prompt. This lets us use temp=0 while still getting variation 
@@ -443,3 +470,36 @@ def get_prompt_path(prompt_name: str) -> str:
         return f"unformatted/{prompt_name}"
     else:
         return prompt_name
+    
+def normalize_recipient_name(recipient: str) -> str:
+        """Normalize recipient names to handle LLM typos and abbreviations."""
+        if not recipient:
+            return recipient
+        
+        recipient = recipient.upper().strip()
+        
+        # Handle common LLM typos and abbreviations found in data
+        name_mapping = {
+            'EGMANY': 'GERMANY',
+            'GERMAN': 'GERMANY', 
+            'UK': 'ENGLAND',
+            'BRIT': 'ENGLAND',
+            'ENGLAND': 'ENGLAND',  # Keep as-is
+            'FRANCE': 'FRANCE',    # Keep as-is  
+            'GERMANY': 'GERMANY',  # Keep as-is
+            'ITALY': 'ITALY',      # Keep as-is
+            'AUSTRIA': 'AUSTRIA',  # Keep as-is
+            'RUSSIA': 'RUSSIA',    # Keep as-is
+            'TURKEY': 'TURKEY',    # Keep as-is
+            'Germany': 'GERMANY',
+            'England': 'ENGLAND',
+            'France': 'FRANCE',
+            'Italy': 'ITALY',
+            'Russia': 'RUSSIA',
+            'Austria': 'AUSTRIA',
+            'Turkey': 'TURKEY',    
+        }
+        
+        normalized = name_mapping.get(recipient, recipient)
+
+        return normalized

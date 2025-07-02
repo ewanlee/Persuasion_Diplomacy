@@ -142,7 +142,7 @@ def parse_arguments():
         type=_str2bool,
         nargs="?",
         const=True,
-        default=False,
+        default=True,
         help=(
             "When true (1 / true / yes) the engine switches to simpler prompts which low-midrange models handle better."
         ),
@@ -152,7 +152,7 @@ def parse_arguments():
         type=_str2bool,
         nargs="?",
         const=True,
-        default=True,
+        default=False,
         help=(
             "When true (1 / true / yes / default) generates narrative phase summaries. "
             "Set to false (0 / false / no) to skip phase summary generation."
@@ -163,7 +163,7 @@ def parse_arguments():
         type=_str2bool,
         nargs="?",
         const=True,
-        default=True,
+        default=False,
         help=(
             "When true (1 / true / yes / default) uses two-step approach: unformatted prompts + Gemini Flash formatting. "
             "Set to false (0 / false / no) to use original single-step formatted prompts."

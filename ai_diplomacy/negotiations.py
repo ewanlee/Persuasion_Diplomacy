@@ -7,7 +7,7 @@ from diplomacy.engine.message import Message, GLOBAL
 
 from .agent import DiplomacyAgent
 from .clients import load_model_client
-from .utils import gather_possible_orders, load_prompt
+from .utils import gather_possible_orders, load_prompt, normalize_recipient_name
 
 if TYPE_CHECKING:
     from .game_history import GameHistory
@@ -134,7 +134,7 @@ async def conduct_negotiations(
                     # Create an official message in the Diplomacy engine
                     # Determine recipient based on message type
                     if message.get("message_type") == "private":
-                        recipient = message.get("recipient", GLOBAL) # Default to GLOBAL if recipient missing somehow
+                        recipient = normalize_recipient_name(message.get("recipient", GLOBAL)) # Default to GLOBAL if recipient missing somehow
                         if recipient not in game.powers and recipient != GLOBAL:
                             logger.warning(f"Invalid recipient '{recipient}' in message from {power_name}. Sending globally.")
                             recipient = GLOBAL # Fallback to GLOBAL if recipient power is invalid

