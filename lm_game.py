@@ -262,19 +262,9 @@ async def main():
 
     if is_resuming:
         try:
-            # When resuming, we load the state and also the config from the last saved phase.
-            game, agents, game_history, loaded_run_config = load_game_state(run_dir, game_file_name, run_config, args.resume_from_phase)
-            
-            if loaded_run_config:
-                # Use the saved config, but allow current CLI args to override control-flow parameters
-                run_config = loaded_run_config
-                run_config.run_dir = args.run_dir
-                run_config.critical_state_analysis_dir = args.critical_state_analysis_dir
-                run_config.resume_from_phase = args.resume_from_phase
-                run_config.end_at_phase = args.end_at_phase
-                # If prompts_dir is specified now, it overrides the saved one.
-                if args.prompts_dir is not None:
-                    run_config.prompts_dir = args.prompts_dir
+            # When resuming, we always use the provided params (they will override the params used in the saved state)
+            game, agents, game_history, _ = load_game_state(run_dir, game_file_name, run_config, args.resume_from_phase)
+
             logger.info(f"Successfully resumed game from phase: {game.get_current_phase()}.")
         except (FileNotFoundError, ValueError) as e:
             logger.error(f"Could not resume game: {e}. Starting a new game instead.")
