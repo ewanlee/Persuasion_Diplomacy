@@ -273,6 +273,31 @@ python lm_game.py --run_dir results/game_run_004 \
 python lm_game.py --run_dir results/game_run_005 --prompts_dir ./prompts/my_variants
 ```
 
+
+### Setting `--models` (quick guide)
+
+* Pass **one comma-separated list of up to seven model IDs** in this fixed order: AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY.
+
+* **Model-ID syntax**
+
+  ```
+  <prefix:>model[@base_url][#api_key]
+  ```
+  * `prefix:` – optional client (`openai`, `requests`, `claude`, `together`, …).
+  * `@base_url` – hit a proxy / alt endpoint.
+  * `#api_key` – inline key (overrides env vars).
+
+* **Examples**
+
+  ```bash
+  # gpt-4o on openrouter for all powers:
+  --models "openrouter:gpt-4o"
+  # custom URL+apikey for Austria only:
+  --models "openai:llama-3.2-3b@http://localhost:8000#myapikey,openai:gpt-4o,openai:gpt-4o,openai:gpt-4o,openai:gpt-4o,openai:gpt-4o,openai:gpt-4o"
+  ```
+
+
+
 ### Running Batch Experiments with **`experiment_runner.py`**
 
 `experiment_runner.py` is a lightweight orchestrator: it spins up many `lm_game.py` runs in parallel, gathers their artefacts under one *experiment directory*, and then executes the analysis modules you specify.

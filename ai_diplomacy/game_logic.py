@@ -296,9 +296,11 @@ async def initialize_new_game(
         provided_models = [name.strip() for name in args.models.split(",")]
         if len(provided_models) == len(powers_order):
             game.power_model_map = dict(zip(powers_order, provided_models))
+        elif len(provided_models) == 1:
+            game.power_model_map = dict(zip(powers_order, provided_models * 7))
         else:
-            logger.error(f"Expected {len(powers_order)} models for --models but got {len(provided_models)}. Using defaults.")
-            game.power_model_map = assign_models_to_powers()
+            logger.error(f"Expected {len(powers_order)} models for --models but got {len(provided_models)}.")
+            raise Exception("Invalid number of models. Models list must be either exactly 1 or 7 models, comma delimited.")
     else:
         game.power_model_map = assign_models_to_powers()
 
