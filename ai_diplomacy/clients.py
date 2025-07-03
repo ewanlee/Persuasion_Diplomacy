@@ -20,7 +20,7 @@ import google.generativeai as genai
 from together import AsyncTogether
 from together.error import APIError as TogetherAPIError  # For specific error handling
 
-from ..config import config
+from config import config
 from .game_history import GameHistory
 from .utils import load_prompt, run_llm_and_log, log_llm_response, generate_random_seed, get_prompt_path
 

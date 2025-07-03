@@ -2,7 +2,7 @@
 import logging
 import json
 from typing import Optional
-from ..config import config
+from config import config
 
 # Forward declaration for type hinting, actual imports in function if complex
 if False:  # TYPE_CHECKING

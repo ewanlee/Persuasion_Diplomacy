@@ -5,7 +5,7 @@ Module for constructing prompts for LLM interactions in the Diplomacy game.
 import logging
 from typing import Dict, List, Optional, Any  # Added Any for game type placeholder
 
-from ..config import config
+from config import config
 from .utils import load_prompt, get_prompt_path
 from .possible_order_context import (
     generate_rich_order_context,
