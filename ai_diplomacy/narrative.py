@@ -10,11 +10,11 @@ Usage: simply import `ai_diplomacy.narrative` *before* the game loop starts
 3. A short narrative is produced via OpenAI `o3` and saved as the main
    `.summary`.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Callable
 
 from diplomacy.engine.game import Game
@@ -22,84 +22,63 @@ from diplomacy.engine.game import Game
 # Import to get model configuration and client loading
 from .utils import get_special_models
 from .clients import load_model_client
+from ..config import config
 
 LOGGER = logging.getLogger(__name__)
- 
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 SPECIAL_MODELS = get_special_models()
 OPENAI_MODEL = SPECIAL_MODELS["phase_summary"]
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-if not OPENAI_API_KEY:
-    LOGGER.warning("OPENAI_API_KEY not set – narrative summaries will be stubbed.")
 
 # ---------------------------------------------------------------------------
 # Helper to call the model synchronously
 # ---------------------------------------------------------------------------
+
 
 async def _call_model_async(statistical_summary: str, phase_key: str) -> str:
     """Return a 2–4 sentence spectator-friendly narrative using async client."""
     try:
         # Load the narrative client
         narrative_client = load_model_client(OPENAI_MODEL)
-        
+
         system = (
             "You are an energetic e-sports commentator narrating a game of Diplomacy. "
             "Turn the provided phase recap into a concise, thrilling story (max 4 sentences). "
             "Highlight pivotal moves, supply-center swings, betrayals, and momentum shifts."
         )
         narrative_client.set_system_prompt(system)
-        
+
         user = f"PHASE {phase_key}\n\nSTATISTICAL SUMMARY:\n{statistical_summary}\n\nNow narrate this phase for spectators."
-        
+
         # Use the client's generate_response method
         response = await narrative_client.generate_response(
             prompt=user,
             temperature=0.7,  # Some creativity for narrative
-            inject_random_seed=False  # No need for random seed in narratives
+            inject_random_seed=False,  # No need for random seed in narratives
         )
-        
+
         return response.strip() if response else "(Narrative generation failed - empty response)"
-    except Exception as exc:  # Broad – we only log and degrade gracefully
-        LOGGER.error("Narrative generation failed: %s", exc, exc_info=True)
-        return "(Narrative generation failed)"
+
+    except Exception as e:  # Broad – we only log and degrade gracefully
+        if config.ALLOW_NARATION_FAILURE:
+            LOGGER.error(f"Narrative generation failed: {e}", exc_info=True)
+            return "(Narrative generation failed)"
+        else:
+            raise e
 
 
 def _call_openai(statistical_summary: str, phase_key: str) -> str:
     """Return a 2–4 sentence spectator-friendly narrative."""
-    # Check if API key is available based on the model type
-    if OPENAI_MODEL.startswith("openrouter"):
-        if not os.environ.get("OPENROUTER_API_KEY"):
-            return "(Narrative generation disabled – missing OPENROUTER_API_KEY)."
-    elif "claude" in OPENAI_MODEL.lower():
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            return "(Narrative generation disabled – missing ANTHROPIC_API_KEY)."
-    elif "gemini" in OPENAI_MODEL.lower():
-        if not os.environ.get("GEMINI_API_KEY"):
-            return "(Narrative generation disabled – missing GEMINI_API_KEY)."
-    elif "deepseek" in OPENAI_MODEL.lower():
-        if not os.environ.get("DEEPSEEK_API_KEY"):
-            return "(Narrative generation disabled – missing DEEPSEEK_API_KEY)."
-    elif "together" in OPENAI_MODEL.lower():
-        if not os.environ.get("TOGETHER_API_KEY"):
-            return "(Narrative generation disabled – missing TOGETHER_API_KEY)."
-    else:  # Default to OpenAI
-        if not OPENAI_API_KEY:
-            return "(Narrative generation disabled – missing OPENAI_API_KEY)."
-    
-    # Run the async function in a new event loop
-    try:
-        # Create a new event loop for this synchronous context
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(_call_model_async(statistical_summary, phase_key))
-        loop.close()
-        return result
-    except Exception as exc:
-        LOGGER.error("Failed to run async narrative generation: %s", exc, exc_info=True)
-        return "(Narrative generation failed)"
+    # Create a new event loop for this synchronous context
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    result = loop.run_until_complete(_call_model_async(statistical_summary, phase_key))
+    loop.close()
+    return result
+
 
 # ---------------------------------------------------------------------------
 # Patch _generate_phase_summary
@@ -110,28 +89,24 @@ _original_gps: Callable = Game._generate_phase_summary  # type: ignore[attr-defi
 
 def _default_phase_summary_callback(self: Game, phase_key: str) -> Callable:
     """Generate a default statistical summary callback when none is provided."""
+
     def phase_summary_callback(system_prompt, user_prompt):
         # Get the current short phase for accessing game history
         current_short_phase = phase_key
-        
+
         # 1) Gather the current board state, sorted by # of centers
         power_info = []
         for power_name, power in self.powers.items():
             units_list = list(power.units)
             centers_list = list(power.centers)
-            power_info.append(
-                (power_name, len(centers_list), units_list, centers_list)
-            )
+            power_info.append((power_name, len(centers_list), units_list, centers_list))
         # Sort by descending # of centers
         power_info.sort(key=lambda x: x[1], reverse=True)
 
         # 2) Build text lines for the top "Board State Overview"
         top_lines = ["Current Board State (Ordered by SC Count):"]
-        for (p_name, sc_count, units, centers) in power_info:
-            top_lines.append(
-                f" • {p_name}: {sc_count} centers (needs 18 to win). "
-                f"Units={units} Centers={centers}"
-            )
+        for p_name, sc_count, units, centers in power_info:
+            top_lines.append(f" • {p_name}: {sc_count} centers (needs 18 to win). Units={units} Centers={centers}")
 
         # 3) Map orders to "successful", "failed", or "other" outcomes
         success_dict = {}
@@ -182,13 +157,13 @@ def _default_phase_summary_callback(self: Game, phase_key: str) -> Callable:
         summary_parts.append("\n".join(top_lines))
         summary_parts.append("\n" + success_section)
         summary_parts.append("\n" + fail_section)
-        
+
         # Only include "Other" section if it has content
         if other_dict:
             summary_parts.append("\n" + other_section)
 
         return f"Phase {current_short_phase} Summary:\n\n" + "\n".join(summary_parts)
-    
+
     return phase_summary_callback
 
 
@@ -196,7 +171,7 @@ def _patched_generate_phase_summary(self: Game, phase_key, summary_callback=None
     # If no callback provided, use our default one
     if summary_callback is None:
         summary_callback = _default_phase_summary_callback(self, phase_key)
-    
+
     # 1) Call original implementation → statistical summary
     statistical = _original_gps(self, phase_key, summary_callback)
     LOGGER.debug(f"[{phase_key}] Original summary returned: {statistical!r}")
@@ -223,13 +198,15 @@ def _patched_generate_phase_summary(self: Game, phase_key, summary_callback=None
             self.phase_summaries[str(phase_key)] = narrative  # type: ignore[attr-defined]
             LOGGER.debug(f"[{phase_key}] Narrative summary stored successfully.")
         else:
-             LOGGER.warning(f"[{phase_key}] Cannot store narrative summary because phase_data is None.")
+            LOGGER.warning(f"[{phase_key}] Cannot store narrative summary because phase_data is None.")
     except Exception as exc:
         LOGGER.warning("Could not store narrative summary for %s: %s", phase_key, exc)
 
     return narrative
 
+
 # Monkey-patch
 Game._generate_phase_summary = _patched_generate_phase_summary  # type: ignore[assignment]
 
 LOGGER.info("Game._generate_phase_summary patched with narrative generation.")
+

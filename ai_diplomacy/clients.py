@@ -20,6 +20,7 @@ import google.generativeai as genai
 from together import AsyncTogether
 from together.error import APIError as TogetherAPIError # For specific error handling
 
+from ..config import config
 from diplomacy.engine.message import GLOBAL
 from .game_history import GameHistory
 from .utils import load_prompt, run_llm_and_log, log_llm_response, generate_random_seed, get_prompt_path
@@ -125,7 +126,7 @@ class BaseModelClient:
             )
 
             # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
-            if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+            if config.USE_UNFORMATTED_PROMPTS:
                 # Local import to avoid circular dependency
                 from .formatter import format_with_gemini_flash, FORMAT_ORDERS
                 # Format the natural language response into structured format
@@ -596,7 +597,7 @@ class BaseModelClient:
             logger.debug(f"[{self.model_name}] Raw LLM response for {power_name}:\n{raw_response}")
             
             # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
-            if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+            if config.USE_UNFORMATTED_PROMPTS:
                 # Local import to avoid circular dependency
                 from .formatter import format_with_gemini_flash, FORMAT_CONVERSATION
                 # Format the natural language response into structured JSON

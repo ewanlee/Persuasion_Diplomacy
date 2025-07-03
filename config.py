@@ -10,6 +10,11 @@ class Configuration(BaseSettings):
     DEBUG: bool = False
     log_file_path: Path | None = None
     USE_UNFORMATTED_PROMPTS: bool = False
+    SIMPLE_PROMPTS: bool = False
+
+    # Default models for tasks
+    AI_DIPLOMACY_NARRATIVE_MODEL: str = "openrouter-google/gemini-2.5-flash-preview-05-20"
+    AI_DIPLOMACY_FORMATTER_MODEL: str = "openrouter-google/gemini-2.5-flash-preview-05-20"
 
     # API Keys to be validated. Warns if they aren't present at startup, raises ValueError if you attempt to use them when they aren't present.
     DEEPSEEK_API_KEY: str | None = None
@@ -17,6 +22,7 @@ class Configuration(BaseSettings):
     ANTHROPIC_API_KEY: str | None = None
     GEMINI_API_KEY: str | None = None
     OPENROUTER_API_KEY: str | None = None
+    TOGETHER_API_KEY: str | None = None
 
     def __init__(self, power_name: Optional[PowerEnum] = None, **kwargs):
         super().__init__(**kwargs)

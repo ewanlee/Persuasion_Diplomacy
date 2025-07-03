@@ -3,6 +3,7 @@ import logging
 import json
 import os
 from typing import Optional
+from ..config import config
 
 # Forward declaration for type hinting, actual imports in function if complex
 if False: # TYPE_CHECKING
@@ -82,7 +83,7 @@ async def initialize_agent_state_ext(
         parsed_successfully = False
         try:
             # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
-            if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+            if config.USE_UNFORMATTED_PROMPTS:
                 # Format the natural language response into JSON
                 formatted_response = await format_with_gemini_flash(
                     response, 

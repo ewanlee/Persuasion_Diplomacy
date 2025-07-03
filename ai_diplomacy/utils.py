@@ -10,6 +10,8 @@ import string
 import json
 import asyncio
 
+from ..config import config
+
 # Avoid circular import for type hinting
 if TYPE_CHECKING:
     from .clients import BaseModelClient
@@ -109,8 +111,8 @@ def get_special_models() -> Dict[str, str]:
         export AI_DIPLOMACY_FORMATTER_MODEL="gemini-2.0-flash"
     """
     return {
-        "phase_summary": os.getenv("AI_DIPLOMACY_NARRATIVE_MODEL", "openrouter-google/gemini-2.5-flash-preview-05-20"),
-        "formatter": os.getenv("AI_DIPLOMACY_FORMATTER_MODEL", "google/gemini-2.5-flash-lite-preview-06-17"),
+        "phase_summary": config.AI_DIPLOMACY_NARRATIVE_MODEL,
+        "formatter": config.AI_DIPLOMACY_FORMATTER_MODEL
     }
     
     
@@ -466,7 +468,7 @@ def get_prompt_path(prompt_name: str) -> str:
     Returns:
         str: Either "unformatted/{prompt_name}" or just "{prompt_name}"
     """
-    if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+    if config.USE_UNFORMATTED_PROMPTS:
         return f"unformatted/{prompt_name}"
     else:
         return prompt_name

@@ -740,7 +740,7 @@ class DiplomacyAgent:
             if raw_response:
                 try:
                     # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
-                    if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+                    if config.USE_UNFORMATTED_PROMPTS:
                         # Format the natural language response into JSON
                         formatted_response = await format_with_gemini_flash(
                             raw_response, FORMAT_ORDER_DIARY, power_name=self.power_name, phase=game.current_short_phase, log_file_path=log_file_path
@@ -1006,7 +1006,7 @@ class DiplomacyAgent:
             if response is not None and response.strip():  # Check if response is not None and not just whitespace
                 try:
                     # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
-                    if os.getenv("USE_UNFORMATTED_PROMPTS") == "1":
+                    if config.USE_UNFORMATTED_PROMPTS:
                         # Format the natural language response into JSON
                         formatted_response = await format_with_gemini_flash(
                             response, FORMAT_STATE_UPDATE, power_name=power_name, phase=current_phase, log_file_path=log_file_path
@@ -1186,4 +1186,3 @@ class DiplomacyAgent:
             logger.error(f"Agent {self.power_name} failed to generate plan: {e}")
             self.add_journal_entry(f"Failed to generate plan for phase {game.current_phase} due to error: {e}")
             return "Error: Failed to generate plan."
-
