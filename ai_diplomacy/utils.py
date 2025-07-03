@@ -9,6 +9,9 @@ import random
 import string
 import json
 import asyncio
+from openai import RateLimitError, APIConnectionError, APITimeoutError
+import aiohttp
+import requests
 
 from config import config
 
@@ -394,22 +397,6 @@ def log_llm_response(
     except Exception as e:
         logger.error(f"Failed to log LLM response to {log_file_path}: {e}", exc_info=True)
 
-
-import random
-import asyncio
-import logging
-from typing import Optional
-
-# For specific, typed exception handling
-from openai import RateLimitError, APIConnectionError, APITimeoutError
-import aiohttp
-import requests
-
-# Assuming 'BaseModelClient' is defined elsewhere as in your original code
-# from .client import BaseModelClient
-
-logger = logging.getLogger("client")
-
 # A tuple of exception types that we consider safe to retry.
 # This includes network issues, timeouts, rate limits, and the ValueError
 # we now raise for empty/invalid responses.
@@ -422,7 +409,6 @@ RETRYABLE_EXCEPTIONS = (
     asyncio.TimeoutError,
     ValueError,  # We explicitly raise this for empty responses, which might be a temporary glitch.
 )
-
 
 async def run_llm_and_log(
     client: "BaseModelClient",
