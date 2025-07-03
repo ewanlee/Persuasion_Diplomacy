@@ -1,40 +1,40 @@
 import os
 import json
-from json import JSONDecodeError
 import re
 import logging
 import ast  # For literal_eval in JSON fallback parsing
 import aiohttp  # For direct HTTP requests to Responses API
 
-from typing import List, Dict, Optional, Any, Tuple, NamedTuple
+from typing import List, Dict, Optional, Tuple, NamedTuple
 from dotenv import load_dotenv
 
 # Use Async versions of clients
 from openai import AsyncOpenAI
-from openai import AsyncOpenAI as AsyncDeepSeekOpenAI # Alias for clarity
+from openai import AsyncOpenAI as AsyncDeepSeekOpenAI  # Alias for clarity
 from anthropic import AsyncAnthropic
 import asyncio
 import requests
 
 import google.generativeai as genai
 from together import AsyncTogether
-from together.error import APIError as TogetherAPIError # For specific error handling
+from together.error import APIError as TogetherAPIError  # For specific error handling
 
 from ..config import config
-from diplomacy.engine.message import GLOBAL
 from .game_history import GameHistory
 from .utils import load_prompt, run_llm_and_log, log_llm_response, generate_random_seed, get_prompt_path
+
 # Import DiplomacyAgent for type hinting if needed, but avoid circular import if possible
 from .prompt_constructor import construct_order_generation_prompt, build_context_prompt
 # Moved formatter imports to avoid circular import - imported locally where needed
 
 # set logger back to just info
 logger = logging.getLogger("client")
-logger.setLevel(logging.DEBUG) # Keep debug for now during async changes
+logger.setLevel(logging.DEBUG)  # Keep debug for now during async changes
 # Note: BasicConfig might conflict if already configured in lm_game. Keep client-specific for now.
 # logging.basicConfig(level=logging.DEBUG) # Might be redundant if lm_game configures root
 
 load_dotenv()
+
 
 ##############################################################################
 # 1) Base Interface
@@ -52,7 +52,7 @@ class BaseModelClient:
         self.model_name = model_name
         self.prompts_dir = prompts_dir
         # Load a default initially, can be overwritten by set_system_prompt
-        self.system_prompt = load_prompt("system_prompt.txt", prompts_dir=self.prompts_dir) 
+        self.system_prompt = load_prompt("system_prompt.txt", prompts_dir=self.prompts_dir)
         self.max_tokens = 16000  # default unless overridden
 
     def set_system_prompt(self, content: str):
@@ -76,13 +76,13 @@ class BaseModelClient:
         board_state,
         power_name: str,
         possible_orders: Dict[str, List[str]],
-        conversation_text: str, # This is GameHistory
+        conversation_text: str,  # This is GameHistory
         model_error_stats: dict,
         log_file_path: str,
         phase: str,
         agent_goals: Optional[List[str]] = None,
         agent_relationships: Optional[Dict[str, str]] = None,
-        agent_private_diary_str: Optional[str] = None, # Added
+        agent_private_diary_str: Optional[str] = None,  # Added
     ) -> List[str]:
         """
         1) Builds the prompt with conversation context if available
@@ -90,7 +90,7 @@ class BaseModelClient:
         3) Parses JSON block
         """
         # The 'conversation_text' parameter was GameHistory. Renaming for clarity.
-        game_history_obj = conversation_text 
+        game_history_obj = conversation_text
 
         prompt = construct_order_generation_prompt(
             system_prompt=self.system_prompt,
@@ -98,7 +98,7 @@ class BaseModelClient:
             board_state=board_state,
             power_name=power_name,
             possible_orders=possible_orders,
-            game_history=game_history_obj, # Pass GameHistory object
+            game_history=game_history_obj,  # Pass GameHistory object
             agent_goals=agent_goals,
             agent_relationships=agent_relationships,
             agent_private_diary_str=agent_private_diary_str,
@@ -108,7 +108,7 @@ class BaseModelClient:
         raw_response = ""
         # Initialize success status. Will be updated based on outcome.
         success_status = "Failure: Initialized"
-        parsed_orders_for_return = self.fallback_orders(possible_orders) # Default to fallback
+        parsed_orders_for_return = self.fallback_orders(possible_orders)  # Default to fallback
 
         try:
             # Call LLM using the logging wrapper
@@ -118,36 +118,29 @@ class BaseModelClient:
                 log_file_path=log_file_path,
                 power_name=power_name,
                 phase=phase,
-                response_type='order', # Context for run_llm_and_log's own error logging
-                temperature=0
+                response_type="order",  # Context for run_llm_and_log's own error logging
+                temperature=0,
             )
-            logger.debug(
-                f"[{self.model_name}] Raw LLM response for {power_name} orders:\n{raw_response}"
-            )
+            logger.debug(f"[{self.model_name}] Raw LLM response for {power_name} orders:\n{raw_response}")
 
             # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
             if config.USE_UNFORMATTED_PROMPTS:
                 # Local import to avoid circular dependency
                 from .formatter import format_with_gemini_flash, FORMAT_ORDERS
+
                 # Format the natural language response into structured format
                 formatted_response = await format_with_gemini_flash(
-                    raw_response, 
-                    FORMAT_ORDERS,
-                    power_name=power_name,
-                    phase=phase,
-                    log_file_path=log_file_path
+                    raw_response, FORMAT_ORDERS, power_name=power_name, phase=phase, log_file_path=log_file_path
                 )
             else:
                 # Use the raw response directly (already formatted)
                 formatted_response = raw_response
-            
+
             # Attempt to parse the final "orders" from the formatted response
             move_list = self._extract_moves(formatted_response, power_name)
 
             if not move_list:
-                logger.warning(
-                    f"[{self.model_name}] Could not extract moves for {power_name}. Using fallback."
-                )
+                logger.warning(f"[{self.model_name}] Could not extract moves for {power_name}. Using fallback.")
                 if model_error_stats is not None and self.model_name in model_error_stats:
                     model_error_stats[self.model_name].setdefault("order_decoding_errors", 0)
                     model_error_stats[self.model_name]["order_decoding_errors"] += 1
@@ -163,18 +156,18 @@ class BaseModelClient:
                     max_invalid_to_log = 5
                     display_invalid_moves = invalid_moves_list[:max_invalid_to_log]
                     omitted_count = len(invalid_moves_list) - len(display_invalid_moves)
-                    
+
                     invalid_moves_str = ", ".join(display_invalid_moves)
                     if omitted_count > 0:
                         invalid_moves_str += f", ... ({omitted_count} more)"
-                    
+
                     success_status = f"Failure: Invalid LLM Moves ({len(invalid_moves_list)}): {invalid_moves_str}"
                     # If some moves were validated despite others being invalid, it's still not a full 'Success'
                     # because the LLM didn't provide a fully usable set of orders without intervention/fallbacks.
                     # The fallback_orders logic within _validate_orders might fill in missing pieces,
                     # but the key is that the LLM *proposed* invalid moves.
-                    if not validated_moves: # All LLM moves were invalid
-                         logger.warning(f"[{power_name}] All LLM-proposed moves were invalid. Using fallbacks. Invalid: {invalid_moves_list}")
+                    if not validated_moves:  # All LLM moves were invalid
+                        logger.warning(f"[{power_name}] All LLM-proposed moves were invalid. Using fallbacks. Invalid: {invalid_moves_list}")
                     else:
                         logger.info(f"[{power_name}] Some LLM-proposed moves were invalid. Using fallbacks/validated. Invalid: {invalid_moves_list}")
                 else:
@@ -186,16 +179,16 @@ class BaseModelClient:
             # Fallback is already set to parsed_orders_for_return
         finally:
             # Log the attempt regardless of outcome
-            if log_file_path: # Only log if a path is provided
+            if log_file_path:  # Only log if a path is provided
                 log_llm_response(
                     log_file_path=log_file_path,
                     model_name=self.model_name,
                     power_name=power_name,
                     phase=phase,
-                    response_type="order_generation", # Specific type for CSV logging
-                    raw_input_prompt=prompt, # Renamed from 'prompt' to match log_llm_response arg
+                    response_type="order_generation",  # Specific type for CSV logging
+                    raw_input_prompt=prompt,  # Renamed from 'prompt' to match log_llm_response arg
                     raw_response=raw_response,
-                    success=success_status
+                    success=success_status,
                     # token_usage and cost can be added later if available and if log_llm_response supports them
                 )
         return parsed_orders_for_return
@@ -216,57 +209,43 @@ class BaseModelClient:
 
         if not matches:
             # Some LLMs might not put the colon or might have triple backtick fences.
-            logger.debug(
-                f"[{self.model_name}] Regex parse #1 failed for {power_name}. Trying alternative patterns."
-            )
+            logger.debug(f"[{self.model_name}] Regex parse #1 failed for {power_name}. Trying alternative patterns.")
 
             # 1b) Check for inline JSON after "PARSABLE OUTPUT"
             pattern_alt = r"PARSABLE OUTPUT\s*\{(.*?)\}\s*$"
             matches = re.search(pattern_alt, raw_response, re.DOTALL)
-            
+
         if not matches:
             # 1c) Check for **PARSABLE OUTPUT:** pattern (with asterisks)
-            logger.debug(
-                f"[{self.model_name}] Regex parse #2 failed for {power_name}. Trying asterisk-wrapped pattern."
-            )
+            logger.debug(f"[{self.model_name}] Regex parse #2 failed for {power_name}. Trying asterisk-wrapped pattern.")
             pattern_asterisk = r"\*\*PARSABLE OUTPUT:\*\*\s*(\{[\s\S]*?\})"
             matches = re.search(pattern_asterisk, raw_response, re.DOTALL)
 
         if not matches:
-            logger.debug(
-                f"[{self.model_name}] Regex parse #3 failed for {power_name}. Trying triple-backtick code fences."
-            )
+            logger.debug(f"[{self.model_name}] Regex parse #3 failed for {power_name}. Trying triple-backtick code fences.")
 
         # 2) If still no match, check for triple-backtick code fences containing JSON
         if not matches:
             code_fence_pattern = r"```json\n(.*?)\n```"
             matches = re.search(code_fence_pattern, raw_response, re.DOTALL)
             if matches:
-                logger.debug(
-                    f"[{self.model_name}] Found triple-backtick JSON block for {power_name}."
-                )
-        
+                logger.debug(f"[{self.model_name}] Found triple-backtick JSON block for {power_name}.")
+
         # 2b) Also try plain ``` code fences without json marker
         if not matches:
             code_fence_plain = r"```\n(.*?)\n```"
             matches = re.search(code_fence_plain, raw_response, re.DOTALL)
             if matches:
-                logger.debug(
-                    f"[{self.model_name}] Found plain triple-backtick block for {power_name}."
-                )
-        
+                logger.debug(f"[{self.model_name}] Found plain triple-backtick block for {power_name}.")
+
         # 2c) Try to find bare JSON object anywhere in the response
         if not matches:
-            logger.debug(
-                f"[{self.model_name}] No explicit markers found for {power_name}. Looking for bare JSON."
-            )
+            logger.debug(f"[{self.model_name}] No explicit markers found for {power_name}. Looking for bare JSON.")
             # Look for a JSON object that contains "orders" key
             bare_json_pattern = r'(\{[^{}]*"orders"\s*:\s*\[[^\]]*\][^{}]*\})'
             matches = re.search(bare_json_pattern, raw_response, re.DOTALL)
             if matches:
-                logger.debug(
-                    f"[{self.model_name}] Found bare JSON object with 'orders' key for {power_name}."
-                )
+                logger.debug(f"[{self.model_name}] Found bare JSON object with 'orders' key for {power_name}.")
 
         # 3) Attempt to parse JSON if we found anything
         json_text = None
@@ -283,9 +262,7 @@ class BaseModelClient:
             json_text = json_text.strip()
 
         if not json_text:
-            logger.debug(
-                f"[{self.model_name}] No JSON text found in LLM response for {power_name}."
-            )
+            logger.debug(f"[{self.model_name}] No JSON text found in LLM response for {power_name}.")
             return None
 
         # 3a) Try JSON loading
@@ -293,14 +270,12 @@ class BaseModelClient:
             data = json.loads(json_text)
             return data.get("orders", None)
         except json.JSONDecodeError as e:
-            logger.warning(
-                f"[{self.model_name}] JSON decode failed for {power_name}: {e}. Trying to fix common issues."
-            )
-            
+            logger.warning(f"[{self.model_name}] JSON decode failed for {power_name}: {e}. Trying to fix common issues.")
+
             # Try to fix common JSON issues
             try:
                 # Remove trailing commas
-                fixed_json = re.sub(r',\s*([\}\]])', r'\1', json_text)
+                fixed_json = re.sub(r",\s*([\}\]])", r"\1", json_text)
                 # Fix single quotes to double quotes
                 fixed_json = fixed_json.replace("'", '"')
                 # Try parsing again
@@ -308,14 +283,12 @@ class BaseModelClient:
                 logger.info(f"[{self.model_name}] Successfully parsed JSON after fixes for {power_name}")
                 return data.get("orders", None)
             except json.JSONDecodeError:
-                logger.warning(
-                    f"[{self.model_name}] JSON decode still failed after fixes for {power_name}. Trying to remove inline comments."
-                )
-                
+                logger.warning(f"[{self.model_name}] JSON decode still failed after fixes for {power_name}. Trying to remove inline comments.")
+
                 # Try to remove inline comments (// style)
                 try:
                     # Remove // comments from each line
-                    lines = json_text.split('\n')
+                    lines = json_text.split("\n")
                     cleaned_lines = []
                     for line in lines:
                         # Find // that's not inside quotes
@@ -326,33 +299,31 @@ class BaseModelClient:
                             if escape_next:
                                 escape_next = False
                                 continue
-                            if char == '\\':
+                            if char == "\\":
                                 escape_next = True
                                 continue
                             if char == '"' and not escape_next:
                                 in_quotes = not in_quotes
-                            if not in_quotes and line[i:i+2] == '//':
+                            if not in_quotes and line[i : i + 2] == "//":
                                 comment_pos = i
                                 break
-                        
+
                         if comment_pos >= 0:
                             # Remove comment but keep any trailing comma
                             cleaned_line = line[:comment_pos].rstrip()
                         else:
                             cleaned_line = line
                         cleaned_lines.append(cleaned_line)
-                    
-                    comment_free_json = '\n'.join(cleaned_lines)
+
+                    comment_free_json = "\n".join(cleaned_lines)
                     # Also remove trailing commas after comment removal
-                    comment_free_json = re.sub(r',\s*([\}\]])', r'\1', comment_free_json)
-                    
+                    comment_free_json = re.sub(r",\s*([\}\]])", r"\1", comment_free_json)
+
                     data = json.loads(comment_free_json)
                     logger.info(f"[{self.model_name}] Successfully parsed JSON after removing inline comments for {power_name}")
                     return data.get("orders", None)
                 except json.JSONDecodeError:
-                    logger.warning(
-                        f"[{self.model_name}] JSON decode still failed after removing comments for {power_name}. Trying bracket fallback."
-                    )
+                    logger.warning(f"[{self.model_name}] JSON decode still failed after removing comments for {power_name}. Trying bracket fallback.")
 
         # 3b) Attempt bracket fallback: we look for the substring after "orders"
         #     E.g. "orders: ['A BUD H']" and parse it. This is risky but can help with minor JSON format errors.
@@ -366,30 +337,26 @@ class BaseModelClient:
                 if isinstance(moves, list):
                     return moves
             except Exception as e2:
-                logger.warning(
-                    f"[{self.model_name}] Bracket fallback parse also failed for {power_name}: {e2}"
-                )
+                logger.warning(f"[{self.model_name}] Bracket fallback parse also failed for {power_name}: {e2}")
 
         # If all attempts failed
         return None
-    
-    def _validate_orders(
-        self, moves: List[str], possible_orders: Dict[str, List[str]]
-    ) -> Tuple[List[str], List[str]]: # MODIFIED RETURN TYPE
+
+    def _validate_orders(self, moves: List[str], possible_orders: Dict[str, List[str]]) -> Tuple[List[str], List[str]]:  # MODIFIED RETURN TYPE
         """
         Filter out invalid moves, fill missing with HOLD, else fallback.
         Returns a tuple: (validated_moves, invalid_moves_found)
         """
         logger.debug(f"[{self.model_name}] Proposed LLM moves: {moves}")
         validated = []
-        invalid_moves_found = [] # ADDED: To collect invalid moves
+        invalid_moves_found = []  # ADDED: To collect invalid moves
         used_locs = set()
 
         if not isinstance(moves, list):
             logger.debug(f"[{self.model_name}] Moves not a list, fallback.")
             # Return fallback and empty list for invalid_moves_found as no specific LLM moves were processed
-            return self.fallback_orders(possible_orders), [] 
-        
+            return self.fallback_orders(possible_orders), []
+
         for move_str in moves:
             # Check if it's in possible orders
             if any(move_str in loc_orders for loc_orders in possible_orders.values()):
@@ -399,21 +366,21 @@ class BaseModelClient:
                     used_locs.add(parts[1][:3])
             else:
                 logger.debug(f"[{self.model_name}] Invalid move from LLM: {move_str}")
-                invalid_moves_found.append(move_str) # ADDED: Collect invalid move
+                invalid_moves_found.append(move_str)  # ADDED: Collect invalid move
 
         # Fill missing with hold
         for loc, orders_list in possible_orders.items():
             if loc not in used_locs and orders_list:
                 hold_candidates = [o for o in orders_list if o.endswith("H")]
-                validated.append(
-                    hold_candidates[0] if hold_candidates else orders_list[0]
-                )
+                validated.append(hold_candidates[0] if hold_candidates else orders_list[0])
 
-        if not validated and not invalid_moves_found: # Only if LLM provided no valid moves and no invalid moves (e.g. empty list from LLM)
+        if not validated and not invalid_moves_found:  # Only if LLM provided no valid moves and no invalid moves (e.g. empty list from LLM)
             logger.warning(f"[{self.model_name}] No valid LLM moves provided and no invalid ones to report. Using fallback.")
             return self.fallback_orders(possible_orders), []
-        elif not validated and invalid_moves_found: # All LLM moves were invalid
-            logger.warning(f"[{self.model_name}] All LLM moves invalid ({len(invalid_moves_found)} found), using fallback. Invalid: {invalid_moves_found}")
+        elif not validated and invalid_moves_found:  # All LLM moves were invalid
+            logger.warning(
+                f"[{self.model_name}] All LLM moves invalid ({len(invalid_moves_found)} found), using fallback. Invalid: {invalid_moves_found}"
+            )
             # We return empty list for validated, but the invalid_moves_found list is populated
             return self.fallback_orders(possible_orders), invalid_moves_found
 
@@ -442,9 +409,8 @@ class BaseModelClient:
         # log_file_path: str, # Not used directly by build_context_prompt
         agent_goals: Optional[List[str]] = None,
         agent_relationships: Optional[Dict[str, str]] = None,
-        agent_private_diary_str: Optional[str] = None, # Added
+        agent_private_diary_str: Optional[str] = None,  # Added
     ) -> str:
-        
         instructions = load_prompt("planning_instructions.txt", prompts_dir=self.prompts_dir)
 
         context = self.build_context_prompt(
@@ -455,7 +421,7 @@ class BaseModelClient:
             game_history,
             agent_goals=agent_goals,
             agent_relationships=agent_relationships,
-            agent_private_diary=agent_private_diary_str, # Pass diary string
+            agent_private_diary=agent_private_diary_str,  # Pass diary string
             prompts_dir=self.prompts_dir,
         )
 
@@ -472,7 +438,7 @@ class BaseModelClient:
         # log_file_path: str, # Not used directly by build_context_prompt
         agent_goals: Optional[List[str]] = None,
         agent_relationships: Optional[Dict[str, str]] = None,
-        agent_private_diary_str: Optional[str] = None, # Added
+        agent_private_diary_str: Optional[str] = None,  # Added
     ) -> str:
         # MINIMAL CHANGE: Just change to load unformatted version conditionally
         instructions = load_prompt(get_prompt_path("conversation_instructions.txt"), prompts_dir=self.prompts_dir)
@@ -486,19 +452,19 @@ class BaseModelClient:
             game_history,
             agent_goals=agent_goals,
             agent_relationships=agent_relationships,
-            agent_private_diary=agent_private_diary_str, # Pass diary string
+            agent_private_diary=agent_private_diary_str,  # Pass diary string
             prompts_dir=self.prompts_dir,
         )
-        
+
         # KEEP ORIGINAL: Get recent messages targeting this power to prioritize responses
         recent_messages_to_power = game_history.get_recent_messages_to_power(power_name, limit=3)
-        
+
         # KEEP ORIGINAL: Debug logging to verify messages
         logger.info(f"[{power_name}] Found {len(recent_messages_to_power)} high priority messages to respond to")
         if recent_messages_to_power:
             for i, msg in enumerate(recent_messages_to_power):
-                logger.info(f"[{power_name}] Priority message {i+1}: From {msg['sender']} in {msg['phase']}: {msg['content'][:50]}...")
-        
+                logger.info(f"[{power_name}] Priority message {i + 1}: From {msg['sender']} in {msg['phase']}: {msg['content'][:50]}...")
+
         # KEEP ORIGINAL: Add a section for unanswered messages
         unanswered_messages = "\n\nRECENT MESSAGES REQUIRING YOUR ATTENTION:\n"
         if recent_messages_to_power:
@@ -506,25 +472,32 @@ class BaseModelClient:
                 unanswered_messages += f"\nFrom {msg['sender']} in {msg['phase']}: {msg['content']}\n"
         else:
             unanswered_messages += "\nNo urgent messages requiring direct responses.\n"
-            
+
         final_prompt = context + unanswered_messages + "\n\n" + instructions
-        final_prompt = final_prompt.replace('AUSTRIA', 'Austria').replace('ENGLAND', "England").replace('FRANCE', 'France').replace('GERMANY', 'Germany').replace('ITALY', "Italy").replace('RUSSIA', 'Russia').replace('TURKEY', 'Turkey')
+        final_prompt = (
+            final_prompt.replace("AUSTRIA", "Austria")
+            .replace("ENGLAND", "England")
+            .replace("FRANCE", "France")
+            .replace("GERMANY", "Germany")
+            .replace("ITALY", "Italy")
+            .replace("RUSSIA", "Russia")
+            .replace("TURKEY", "Turkey")
+        )
         return final_prompt
 
-    async def get_planning_reply( # Renamed from get_plan to avoid conflict with get_plan in agent.py
+    async def get_planning_reply(  # Renamed from get_plan to avoid conflict with get_plan in agent.py
         self,
         game,
         board_state,
         power_name: str,
         possible_orders: Dict[str, List[str]],
         game_history: GameHistory,
-        game_phase: str, # Used for logging
-        log_file_path: str, # Used for logging
+        game_phase: str,  # Used for logging
+        log_file_path: str,  # Used for logging
         agent_goals: Optional[List[str]] = None,
         agent_relationships: Optional[Dict[str, str]] = None,
-        agent_private_diary_str: Optional[str] = None, # Added
+        agent_private_diary_str: Optional[str] = None,  # Added
     ) -> str:
-        
         prompt = self.build_planning_prompt(
             game,
             board_state,
@@ -535,7 +508,7 @@ class BaseModelClient:
             # log_file_path, # Not passed to build_planning_prompt directly
             agent_goals=agent_goals,
             agent_relationships=agent_relationships,
-            agent_private_diary_str=agent_private_diary_str, # Pass diary string
+            agent_private_diary_str=agent_private_diary_str,  # Pass diary string
         )
 
         # Call LLM using the logging wrapper
@@ -544,12 +517,12 @@ class BaseModelClient:
             prompt=prompt,
             log_file_path=log_file_path,
             power_name=power_name,
-            phase=game_phase, # Use game_phase for logging
-            response_type='plan_reply', # Changed from 'plan' to avoid confusion
+            phase=game_phase,  # Use game_phase for logging
+            response_type="plan_reply",  # Changed from 'plan' to avoid confusion
         )
         logger.debug(f"[{self.model_name}] Raw LLM response for {power_name} planning reply:\n{raw_response}")
         return raw_response
-    
+
     async def get_conversation_reply(
         self,
         game,
@@ -559,18 +532,18 @@ class BaseModelClient:
         game_history: GameHistory,
         game_phase: str,
         log_file_path: str,
-        active_powers: Optional[List[str]] = None, 
+        active_powers: Optional[List[str]] = None,
         agent_goals: Optional[List[str]] = None,
         agent_relationships: Optional[Dict[str, str]] = None,
-        agent_private_diary_str: Optional[str] = None, 
+        agent_private_diary_str: Optional[str] = None,
     ) -> List[Dict[str, str]]:
         """
         Generates a negotiation message, considering agent state.
         """
-        raw_input_prompt = "" # Initialize for finally block
-        raw_response = ""    # Initialize for finally block
-        success_status = "Failure: Initialized" # Default status
-        messages_to_return = [] # Initialize to ensure it's defined
+        raw_input_prompt = ""  # Initialize for finally block
+        raw_response = ""  # Initialize for finally block
+        success_status = "Failure: Initialized"  # Default status
+        messages_to_return = []  # Initialize to ensure it's defined
 
         try:
             raw_input_prompt = self.build_conversation_prompt(
@@ -581,7 +554,7 @@ class BaseModelClient:
                 game_history,
                 agent_goals=agent_goals,
                 agent_relationships=agent_relationships,
-                agent_private_diary_str=agent_private_diary_str, 
+                agent_private_diary_str=agent_private_diary_str,
             )
 
             logger.debug(f"[{self.model_name}] Conversation prompt for {power_name}:\n{raw_input_prompt}")
@@ -591,33 +564,30 @@ class BaseModelClient:
                 prompt=raw_input_prompt,
                 log_file_path=log_file_path,
                 power_name=power_name,
-                phase=game_phase, 
-                response_type='negotiation', # For run_llm_and_log's internal context
+                phase=game_phase,
+                response_type="negotiation",  # For run_llm_and_log's internal context
             )
             logger.debug(f"[{self.model_name}] Raw LLM response for {power_name}:\n{raw_response}")
-            
+
             # Conditionally format the response based on USE_UNFORMATTED_PROMPTS
             if config.USE_UNFORMATTED_PROMPTS:
                 # Local import to avoid circular dependency
                 from .formatter import format_with_gemini_flash, FORMAT_CONVERSATION
+
                 # Format the natural language response into structured JSON
                 formatted_response = await format_with_gemini_flash(
-                    raw_response, 
-                    FORMAT_CONVERSATION,
-                    power_name=power_name,
-                    phase=game_phase,
-                    log_file_path=log_file_path
+                    raw_response, FORMAT_CONVERSATION, power_name=power_name, phase=game_phase, log_file_path=log_file_path
                 )
             else:
                 # Use the raw response directly (already formatted)
                 formatted_response = raw_response
-            
+
             parsed_messages = []
             json_blocks = []
             json_decode_error_occurred = False
-            
+
             # For formatted response, we expect a clean JSON array
-            try:                
+            try:
                 data = json.loads(formatted_response)
                 if isinstance(data, list):
                     parsed_messages = data
@@ -628,14 +598,14 @@ class BaseModelClient:
                 logger.warning(f"[{self.model_name}] Failed to parse formatted response as JSON, falling back to regex")
                 # Fall back to original parsing logic using formatted_response
                 raw_response = formatted_response
-            
+
             # Original parsing logic as fallback
             if not parsed_messages:
                 # Attempt to find blocks enclosed in {{...}}
-                double_brace_blocks = re.findall(r'\{\{(.*?)\}\}', raw_response, re.DOTALL)
+                double_brace_blocks = re.findall(r"\{\{(.*?)\}\}", raw_response, re.DOTALL)
                 if double_brace_blocks:
                     # If {{...}} blocks are found, assume each is a self-contained JSON object
-                    json_blocks.extend(['{' + block.strip() + '}' for block in double_brace_blocks])
+                    json_blocks.extend(["{" + block.strip() + "}" for block in double_brace_blocks])
                 else:
                     # If no {{...}} blocks, look for ```json ... ``` markdown blocks
                     code_block_match = re.search(r"```json\n(.*?)\n```", raw_response, re.DOTALL)
@@ -650,10 +620,10 @@ class BaseModelClient:
                                 json_blocks = [json.dumps(data)]
                         except json.JSONDecodeError:
                             # If parsing the whole block fails, fall back to regex for individual objects
-                            json_blocks = re.findall(r'\{.*?\}', potential_json_array_or_objects, re.DOTALL)
+                            json_blocks = re.findall(r"\{.*?\}", potential_json_array_or_objects, re.DOTALL)
                     else:
                         # If no markdown block, fall back to regex for any JSON object in the response
-                        json_blocks = re.findall(r'\{.*?\}', raw_response, re.DOTALL)
+                        json_blocks = re.findall(r"\{.*?\}", raw_response, re.DOTALL)
 
             # Process json_blocks if we have them from fallback parsing
             if not parsed_messages and json_blocks:
@@ -661,13 +631,13 @@ class BaseModelClient:
                     try:
                         cleaned_block = block.strip()
                         # Attempt to fix common JSON issues like trailing commas before parsing
-                        cleaned_block = re.sub(r',\s*([\}\]])', r'\1', cleaned_block) 
+                        cleaned_block = re.sub(r",\s*([\}\]])", r"\1", cleaned_block)
                         parsed_message = json.loads(cleaned_block)
                         parsed_messages.append(parsed_message)
                     except json.JSONDecodeError as e:
                         logger.warning(f"[{self.model_name}] Failed to parse JSON block {block_index} for {power_name}: {e}")
                         json_decode_error_occurred = True
-                        
+
             if not parsed_messages:
                 logger.warning(f"[{self.model_name}] No valid messages found in response for {power_name}")
                 success_status = "Success: No messages found"
@@ -684,7 +654,7 @@ class BaseModelClient:
                     else:
                         logger.warning(f"[{self.model_name}] Invalid message structure for {power_name}")
                 parsed_messages = validated_messages
-                
+
             # Set final status and return value
             if parsed_messages:
                 success_status = "Success: Messages extracted"
@@ -695,11 +665,11 @@ class BaseModelClient:
 
             logger.debug(f"[{self.model_name}] Validated conversation replies for {power_name}: {messages_to_return}")
             # return messages_to_return # Return will happen in finally block or after
-        
+
         except Exception as e:
             logger.error(f"[{self.model_name}] Error in get_conversation_reply for {power_name}: {e}", exc_info=True)
             success_status = f"Failure: Exception ({type(e).__name__})"
-            messages_to_return = [] # Ensure empty list on general exception
+            messages_to_return = []  # Ensure empty list on general exception
         finally:
             if log_file_path:
                 log_llm_response(
@@ -710,11 +680,11 @@ class BaseModelClient:
                     response_type="negotiation_message",
                     raw_input_prompt=raw_input_prompt,
                     raw_response=raw_response,
-                    success=success_status
+                    success=success_status,
                 )
             return messages_to_return
 
-    async def get_plan( # This is the original get_plan, now distinct from get_planning_reply
+    async def get_plan(  # This is the original get_plan, now distinct from get_planning_reply
         self,
         game,
         board_state,
@@ -724,14 +694,14 @@ class BaseModelClient:
         log_file_path: str,
         agent_goals: Optional[List[str]] = None,
         agent_relationships: Optional[Dict[str, str]] = None,
-        agent_private_diary_str: Optional[str] = None, # Added
+        agent_private_diary_str: Optional[str] = None,  # Added
     ) -> str:
         """
         Generates a strategic plan for the given power based on the current state.
         This method is called by the agent's generate_plan method.
         """
         logger.info(f"Client generating strategic plan for {power_name}...")
-        
+
         planning_instructions = load_prompt("planning_instructions.txt", prompts_dir=self.prompts_dir)
         if not planning_instructions:
             logger.error("Could not load planning_instructions.txt! Cannot generate plan.")
@@ -740,17 +710,17 @@ class BaseModelClient:
         # For planning, possible_orders might be less critical for the context,
         # but build_context_prompt expects it. We can pass an empty dict or calculate it.
         # For simplicity, let's pass empty if not strictly needed by context for planning.
-        possible_orders_for_context = {} # game.get_all_possible_orders() if needed by context
-        
+        possible_orders_for_context = {}  # game.get_all_possible_orders() if needed by context
+
         context_prompt = self.build_context_prompt(
             game,
             board_state,
             power_name,
-            possible_orders_for_context, 
+            possible_orders_for_context,
             game_history,
             agent_goals=agent_goals,
             agent_relationships=agent_relationships,
-            agent_private_diary=agent_private_diary_str, # Pass diary string
+            agent_private_diary=agent_private_diary_str,  # Pass diary string
             prompts_dir=self.prompts_dir,
         )
 
@@ -765,12 +735,12 @@ class BaseModelClient:
         try:
             # Use run_llm_and_log for the actual LLM call
             raw_plan_response = await run_llm_and_log(
-                client=self, # Pass self (the client instance)
+                client=self,  # Pass self (the client instance)
                 prompt=full_prompt,
                 log_file_path=log_file_path,
                 power_name=power_name,
-                phase=game.current_short_phase, 
-                response_type='plan_generation', # More specific type for run_llm_and_log context
+                phase=game.current_short_phase,
+                response_type="plan_generation",  # More specific type for run_llm_and_log context
             )
             logger.debug(f"[{self.model_name}] Raw LLM response for {power_name} plan generation:\n{raw_plan_response}")
             # No parsing needed for the plan, return the raw string
@@ -781,16 +751,16 @@ class BaseModelClient:
             success_status = f"Failure: Exception ({type(e).__name__})"
             plan_to_return = f"Error: Failed to generate plan for {power_name} due to exception: {e}"
         finally:
-            if log_file_path: # Only log if a path is provided
+            if log_file_path:  # Only log if a path is provided
                 log_llm_response(
                     log_file_path=log_file_path,
                     model_name=self.model_name,
                     power_name=power_name,
                     phase=game.current_short_phase if game else "UnknownPhase",
-                    response_type="plan_generation", # Specific type for CSV logging
-                    raw_input_prompt=full_prompt, # Renamed from 'full_prompt' to match log_llm_response arg
+                    response_type="plan_generation",  # Specific type for CSV logging
+                    raw_input_prompt=full_prompt,  # Renamed from 'full_prompt' to match log_llm_response arg
                     raw_response=raw_plan_response,
-                    success=success_status
+                    success=success_status,
                     # token_usage and cost can be added later
                 )
         return plan_to_return
@@ -813,11 +783,7 @@ class OpenAIClient(BaseModelClient):
     ):
         super().__init__(model_name, prompts_dir=prompts_dir)
 
-        self.base_url = (
-            base_url
-            or os.environ.get("OPENAI_BASE_URL")
-            or "https://api.openai.com/v1"
-        )
+        self.base_url = base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
 
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not self.api_key:
@@ -832,18 +798,14 @@ class OpenAIClient(BaseModelClient):
         inject_random_seed: bool = True,
     ) -> str:
         try:
-            system_prompt_content = (
-                f"{generate_random_seed()}\n\n{self.system_prompt}"
-                if inject_random_seed
-                else self.system_prompt
-            )
+            system_prompt_content = f"{generate_random_seed()}\n\n{self.system_prompt}" if inject_random_seed else self.system_prompt
             prompt_with_cta = f"{prompt}\n\nPROVIDE YOUR RESPONSE BELOW:"
 
             response = await self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {"role": "system", "content": system_prompt_content},
-                    {"role": "user",   "content": prompt_with_cta},
+                    {"role": "user", "content": prompt_with_cta},
                 ],
                 temperature=temperature,
                 max_tokens=self.max_tokens,
@@ -888,20 +850,14 @@ class ClaudeClient(BaseModelClient):
                 temperature=temperature,
             )
             if not response.content:
-                logger.warning(
-                    f"[{self.model_name}] Empty content in Claude generate_response. Returning empty."
-                )
+                logger.warning(f"[{self.model_name}] Empty content in Claude generate_response. Returning empty.")
                 return ""
             return response.content[0].text.strip() if response.content else ""
         except json.JSONDecodeError as json_err:
-            logger.error(
-                f"[{self.model_name}] JSON decoding failed in generate_response: {json_err}"
-            )
+            logger.error(f"[{self.model_name}] JSON decoding failed in generate_response: {json_err}")
             return ""
         except Exception as e:
-            logger.error(
-                f"[{self.model_name}] Unexpected error in generate_response: {e}"
-            )
+            logger.error(f"[{self.model_name}] Unexpected error in generate_response: {e}")
             return ""
 
 
@@ -929,19 +885,14 @@ class GeminiClient(BaseModelClient):
         full_prompt = system_prompt_content + prompt + "\n\nPROVIDE YOUR RESPONSE BELOW:"
 
         try:
-            generation_config = genai.types.GenerationConfig(
-                temperature=temperature,
-                max_output_tokens=self.max_tokens
-            )
+            generation_config = genai.types.GenerationConfig(temperature=temperature, max_output_tokens=self.max_tokens)
             response = await self.client.generate_content_async(
                 contents=full_prompt,
                 generation_config=generation_config,
             )
-            
+
             if not response or not response.text:
-                logger.warning(
-                    f"[{self.model_name}] Empty Gemini generate_response. Returning empty."
-                )
+                logger.warning(f"[{self.model_name}] Empty Gemini generate_response. Returning empty.")
                 return ""
             return response.text.strip()
         except Exception as e:
@@ -957,10 +908,7 @@ class DeepSeekClient(BaseModelClient):
     def __init__(self, model_name: str, prompts_dir: Optional[str] = None):
         super().__init__(model_name, prompts_dir=prompts_dir)
         self.api_key = os.environ.get("DEEPSEEK_API_KEY")
-        self.client = AsyncDeepSeekOpenAI(
-            api_key=self.api_key, 
-            base_url="https://api.deepseek.com/"
-        )
+        self.client = AsyncDeepSeekOpenAI(api_key=self.api_key, base_url="https://api.deepseek.com/")
 
     async def generate_response(self, prompt: str, temperature: float = 0.0, inject_random_seed: bool = True) -> str:
         try:
@@ -982,13 +930,11 @@ class DeepSeekClient(BaseModelClient):
                 temperature=temperature,
                 max_tokens=self.max_tokens,
             )
-            
+
             logger.debug(f"[{self.model_name}] Raw DeepSeek response:\n{response}")
 
             if not response or not response.choices:
-                logger.warning(
-                    f"[{self.model_name}] No valid response in generate_response."
-                )
+                logger.warning(f"[{self.model_name}] No valid response in generate_response.")
                 return ""
 
             content = response.choices[0].message.content.strip()
@@ -998,9 +944,7 @@ class DeepSeekClient(BaseModelClient):
             return content
 
         except Exception as e:
-            logger.error(
-                f"[{self.model_name}] Unexpected error in generate_response: {e}"
-            )
+            logger.error(f"[{self.model_name}] Unexpected error in generate_response: {e}")
             return ""
 
 
@@ -1028,7 +972,7 @@ class OpenAIResponsesClient(BaseModelClient):
                 system_prompt_content = f"{random_seed}\n\n{self.system_prompt}"
 
             full_prompt = f"{system_prompt_content}\n\n{prompt}\n\nPROVIDE YOUR RESPONSE BELOW:"
-            
+
             # Prepare the request payload
             payload = {
                 "model": self.model_name,
@@ -1036,79 +980,60 @@ class OpenAIResponsesClient(BaseModelClient):
                 "temperature": temperature,
                 "max_tokens": self.max_tokens,
             }
-            
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}"
-            }
-            
+
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"}
+
             # Make the API call using aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.post(self.base_url, json=payload, headers=headers) as response:
                     if response.status != 200:
                         error_text = await response.text()
-                        logger.error(
-                            f"[{self.model_name}] API error (status {response.status}): {error_text}"
-                        )
+                        logger.error(f"[{self.model_name}] API error (status {response.status}): {error_text}")
                         return ""
-                    
+
                     response_data = await response.json()
-                    
+
                     # Extract the text from the nested response structure
                     # The text is in output[1].content[0].text based on the response
                     try:
                         outputs = response_data.get("output", [])
                         if len(outputs) < 2:
-                            logger.warning(
-                                f"[{self.model_name}] Unexpected output structure. Full response: {response_data}"
-                            )
+                            logger.warning(f"[{self.model_name}] Unexpected output structure. Full response: {response_data}")
                             return ""
-                        
+
                         # The message is typically in the second output item
                         message_output = outputs[1]
                         if message_output.get("type") != "message":
-                            logger.warning(
-                                f"[{self.model_name}] Expected message type in output[1]. Got: {message_output.get('type')}"
-                            )
+                            logger.warning(f"[{self.model_name}] Expected message type in output[1]. Got: {message_output.get('type')}")
                             return ""
-                        
+
                         content_list = message_output.get("content", [])
                         if not content_list:
-                            logger.warning(
-                                f"[{self.model_name}] Empty content list in message output"
-                            )
+                            logger.warning(f"[{self.model_name}] Empty content list in message output")
                             return ""
-                        
+
                         # Look for the content item with type 'output_text'
                         text_content = ""
                         for content_item in content_list:
                             if content_item.get("type") == "output_text":
                                 text_content = content_item.get("text", "")
                                 break
-                        
+
                         if not text_content:
-                            logger.warning(
-                                f"[{self.model_name}] No output_text found in content. Full content: {content_list}"
-                            )
+                            logger.warning(f"[{self.model_name}] No output_text found in content. Full content: {content_list}")
                             return ""
-                        
+
                         return text_content.strip()
-                        
+
                     except (KeyError, IndexError, TypeError) as e:
-                        logger.error(
-                            f"[{self.model_name}] Error parsing response structure: {e}. Full response: {response_data}"
-                        )
+                        logger.error(f"[{self.model_name}] Error parsing response structure: {e}. Full response: {response_data}")
                         return ""
-                    
+
         except aiohttp.ClientError as e:
-            logger.error(
-                f"[{self.model_name}] HTTP client error in generate_response: {e}"
-            )
+            logger.error(f"[{self.model_name}] HTTP client error in generate_response: {e}")
             return ""
         except Exception as e:
-            logger.error(
-                f"[{self.model_name}] Unexpected error in generate_response: {e}"
-            )
+            logger.error(f"[{self.model_name}] Unexpected error in generate_response: {e}")
             return ""
 
 
@@ -1123,17 +1048,14 @@ class OpenRouterClient(BaseModelClient):
             model_name = f"openrouter/{model_name}"
         if model_name.startswith("openrouter-"):
             model_name = model_name.replace("openrouter-", "")
-            
+
         super().__init__(model_name, prompts_dir=prompts_dir)
         self.api_key = os.environ.get("OPENROUTER_API_KEY")
         if not self.api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable is required")
-            
-        self.client = AsyncOpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=self.api_key
-        )
-        
+
+        self.client = AsyncOpenAI(base_url="https://openrouter.ai/api/v1", api_key=self.api_key)
+
         logger.debug(f"[{self.model_name}] Initialized OpenRouter client")
 
     async def generate_response(self, prompt: str, temperature: float = 0.0, inject_random_seed: bool = True) -> str:
@@ -1150,26 +1072,23 @@ class OpenRouterClient(BaseModelClient):
             # Prepare standard OpenAI-compatible request
             response = await self.client.chat.completions.create(
                 model=self.model_name,
-                messages=[
-                    {"role": "system", "content": system_prompt_content},
-                    {"role": "user", "content": prompt_with_cta}
-                ],
+                messages=[{"role": "system", "content": system_prompt_content}, {"role": "user", "content": prompt_with_cta}],
                 max_tokens=self.max_tokens,
                 temperature=temperature,
             )
-            
+
             if not response.choices:
                 logger.warning(f"[{self.model_name}] OpenRouter returned no choices")
                 return ""
-                
+
             content = response.choices[0].message.content.strip()
             if not content:
                 logger.warning(f"[{self.model_name}] OpenRouter returned empty content")
                 return ""
-                
+
             # Parse or return the raw content
             return content
-            
+
         except Exception as e:
             error_msg = str(e)
             # Check if it's a specific OpenRouter error
@@ -1200,7 +1119,7 @@ class TogetherAIClient(BaseModelClient):
         self.api_key = os.environ.get("TOGETHER_API_KEY")
         if not self.api_key:
             raise ValueError("TOGETHER_API_KEY environment variable is required for TogetherAIClient")
-        
+
         # The model_name passed to super() is used for logging and identification.
         # The actual model name for the API call is self.model_name (from super class).
         self.client = AsyncTogether(api_key=self.api_key)
@@ -1211,7 +1130,7 @@ class TogetherAIClient(BaseModelClient):
         Generates a response from the Together AI model.
         """
         logger.debug(f"[{self.model_name}] Generating response with prompt (first 100 chars): {prompt[:100]}...")
-        
+
         messages = [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": prompt},
@@ -1226,7 +1145,7 @@ class TogetherAIClient(BaseModelClient):
                 # Consider adding max_tokens, temperature, etc. as needed
                 # max_tokens=2048, # Example
             )
-            
+
             if response.choices and response.choices[0].message and response.choices[0].message.content is not None:
                 content = response.choices[0].message.content
                 logger.debug(f"[{self.model_name}] Received response (first 100 chars): {content[:100]}...")
@@ -1236,16 +1155,16 @@ class TogetherAIClient(BaseModelClient):
                 return ""
         except TogetherAPIError as e:
             logger.error(f"[{self.model_name}] Together AI API error: {e}", exc_info=True)
-            return f"Error: Together AI API error - {str(e)}" # Return a string with error info
+            return f"Error: Together AI API error - {str(e)}"  # Return a string with error info
         except Exception as e:
             logger.error(f"[{self.model_name}] Unexpected error in TogetherAIClient: {e}", exc_info=True)
-            return f"Error: Unexpected error - {str(e)}" # Return a string with error info
+            return f"Error: Unexpected error - {str(e)}"  # Return a string with error info
 
 
 ##############################################################################
 # RequestsOpenAIClient – sync requests, wrapped async (original + api_key)
 ##############################################################################
-import requests, asyncio
+
 
 class RequestsOpenAIClient(BaseModelClient):
     """
@@ -1266,18 +1185,14 @@ class RequestsOpenAIClient(BaseModelClient):
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY missing and no inline key provided")
 
-        self.base_url = (
-            base_url
-            or os.environ.get("OPENAI_BASE_URL")
-            or "https://api.openai.com/v1"
-        ).rstrip("/")
+        self.base_url = (base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
 
         self.endpoint = f"{self.base_url}/chat/completions"
 
     # ---------------- internal blocking helper ---------------- #
     def _post_sync(self, payload: dict) -> dict:
         headers = {
-            "Content-Type":  "application/json",
+            "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
         r = requests.post(self.endpoint, headers=headers, json=payload, timeout=60)
@@ -1291,17 +1206,13 @@ class RequestsOpenAIClient(BaseModelClient):
         temperature: float = 0.0,
         inject_random_seed: bool = True,
     ) -> str:
-        system_prompt_content = (
-            f"{generate_random_seed()}\n\n{self.system_prompt}"
-            if inject_random_seed
-            else self.system_prompt
-        )
+        system_prompt_content = f"{generate_random_seed()}\n\n{self.system_prompt}" if inject_random_seed else self.system_prompt
 
         payload = {
             "model": self.model_name,
             "messages": [
                 {"role": "system", "content": system_prompt_content},
-                {"role": "user",   "content": f"{prompt}\n\nPROVIDE YOUR RESPONSE BELOW:"},
+                {"role": "user", "content": f"{prompt}\n\nPROVIDE YOUR RESPONSE BELOW:"},
             ],
             "temperature": temperature,
             "max_tokens": self.max_tokens,
@@ -1322,15 +1233,15 @@ class RequestsOpenAIClient(BaseModelClient):
             return ""
 
 
-
 ##############################################################################
 # 3) Factory to Load Model Client
 ##############################################################################
 class ModelSpec(NamedTuple):
-    prefix: Optional[str]   # 'openai', 'requests', …
-    model:  str             # 'gpt-4o'
-    base:   Optional[str]   # 'https://proxy.foo'
-    key:    Optional[str]   # 'sk-…' (may be None)
+    prefix: Optional[str]  # 'openai', 'requests', …
+    model: str  # 'gpt-4o'
+    base: Optional[str]  # 'https://proxy.foo'
+    key: Optional[str]  # 'sk-…' (may be None)
+
 
 def _parse_model_spec(raw: str) -> ModelSpec:
     """
@@ -1339,11 +1250,11 @@ def _parse_model_spec(raw: str) -> ModelSpec:
     """
     raw = raw.strip()
 
-    pre_hash,  _, key_part  = raw.partition("#")
-    pre_at,    _, base_part = pre_hash.partition("@")
+    pre_hash, _, key_part = raw.partition("#")
+    pre_at, _, base_part = pre_hash.partition("@")
 
     maybe_pref, sep, model_part = pre_at.partition(":")
-    if sep:         # explicit prefix was present
+    if sep:  # explicit prefix was present
         prefix, model = maybe_pref.lower(), model_part
     else:
         prefix, model = None, maybe_pref
@@ -1379,17 +1290,17 @@ def load_model_client(model_id: str, prompts_dir: Optional[str] = None) -> BaseM
         match spec.prefix:
             case "openai" | "oai":
                 return OpenAIClient(
-                    model_name  = spec.model,
-                    prompts_dir = prompts_dir,
-                    base_url    = spec.base,
-                    api_key     = inline_key,
+                    model_name=spec.model,
+                    prompts_dir=prompts_dir,
+                    base_url=spec.base,
+                    api_key=inline_key,
                 )
             case "requests" | "req":
                 return RequestsOpenAIClient(
-                    model_name  = spec.model,
-                    prompts_dir = prompts_dir,
-                    base_url    = spec.base,
-                    api_key     = inline_key,
+                    model_name=spec.model,
+                    prompts_dir=prompts_dir,
+                    base_url=spec.base,
+                    api_key=inline_key,
                 )
             case "responses" | "oai-resp" | "openai-responses":
                 return OpenAIResponsesClient(spec.model, prompts_dir, api_key=inline_key)
@@ -1409,7 +1320,7 @@ def load_model_client(model_id: str, prompts_dir: Optional[str] = None) -> BaseM
     # ------------------------------------------------------------------ #
     # 2. Heuristic fallback path (identical to the original behaviour)   #
     # ------------------------------------------------------------------ #
-    lower_id   = spec.model.lower()
+    lower_id = spec.model.lower()
 
     if lower_id == "o3-pro":
         return OpenAIResponsesClient(spec.model, prompts_dir, api_key=inline_key)
@@ -1432,15 +1343,13 @@ def load_model_client(model_id: str, prompts_dir: Optional[str] = None) -> BaseM
 
     # Default: OpenAI-compatible async client
     return OpenAIClient(
-        model_name  = spec.model,
-        prompts_dir = prompts_dir,
-        base_url    = spec.base,
-        api_key     = inline_key,
+        model_name=spec.model,
+        prompts_dir=prompts_dir,
+        base_url=spec.base,
+        api_key=inline_key,
     )
 
     return OpenAIClient(model_name, prompts_dir, base_url)
-
-
 
 
 ##############################################################################
@@ -1453,11 +1362,6 @@ def get_visible_messages_for_power(conversation_messages, power_name):
     visible = []
     for msg in conversation_messages:
         # GLOBAL might be 'ALL' or 'GLOBAL' depending on your usage
-        if (
-            msg["recipient"] == "ALL"
-            or msg["recipient"] == "GLOBAL"
-            or msg["sender"] == power_name
-            or msg["recipient"] == power_name
-        ):
+        if msg["recipient"] == "ALL" or msg["recipient"] == "GLOBAL" or msg["sender"] == power_name or msg["recipient"] == power_name:
             visible.append(msg)
     return visible  # already in chronological order if appended that way

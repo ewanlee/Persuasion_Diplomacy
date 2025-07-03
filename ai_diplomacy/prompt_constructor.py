@@ -11,7 +11,6 @@ from .possible_order_context import (
     generate_rich_order_context,
     generate_rich_order_context_xml,
 )
-import os
 from .game_history import GameHistory  # Assuming GameHistory is correctly importable
 
 # placeholder for diplomacy.Game to avoid circular or direct dependency if not needed for typehinting only
@@ -230,4 +229,3 @@ def construct_order_generation_prompt(
     logger.debug(f"Final order generation prompt preview for {power_name}: {final_prompt[:500]}...")
 
     return final_prompt
-

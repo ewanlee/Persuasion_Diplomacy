@@ -3,7 +3,6 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-from pprint import pformat
 
 logger = logging.getLogger("utils")
 logger.setLevel(logging.INFO)
@@ -24,12 +23,8 @@ class Phase:
     plans: Dict[str, str] = field(default_factory=dict)
     messages: List[Message] = field(default_factory=list)
     submitted_orders_by_power: Dict[str, List[str]] = field(default_factory=dict)
-    orders_by_power: Dict[str, List[str]] = field(
-        default_factory=lambda: defaultdict(list)
-    )
-    results_by_power: Dict[str, List[List[str]]] = field(
-        default_factory=lambda: defaultdict(list)
-    )
+    orders_by_power: Dict[str, List[str]] = field(default_factory=lambda: defaultdict(list))
+    results_by_power: Dict[str, List[List[str]]] = field(default_factory=lambda: defaultdict(list))
     # NEW: Store phase-end summaries provided by each power
     phase_summaries: Dict[str, str] = field(default_factory=dict)
     # NEW: Store experience/journal updates from each power for this phase
@@ -37,11 +32,9 @@ class Phase:
 
     def add_plan(self, power_name: str, plan: str):
         self.plans[power_name] = plan
-    
+
     def add_message(self, sender: str, recipient: str, content: str):
-        self.messages.append(
-            Message(sender=sender, recipient=recipient, content=content)
-        )
+        self.messages.append(Message(sender=sender, recipient=recipient, content=content))
 
     def add_orders(self, power: str, orders: List[str], results: List[List[str]]):
         self.orders_by_power[power].extend(orders)
@@ -110,14 +103,10 @@ class GameHistory:
             phase.plans[power_name] = plan
             logger.debug(f"Added plan for {power_name} in {phase_name}")
 
-    def add_message(
-        self, phase_name: str, sender: str, recipient: str, message_content: str
-    ):
+    def add_message(self, phase_name: str, sender: str, recipient: str, message_content: str):
         phase = self._get_phase(phase_name)
         if phase:
-            message = Message(
-                sender=sender, recipient=recipient, content=message_content
-            )
+            message = Message(sender=sender, recipient=recipient, content=message_content)
             phase.messages.append(message)
             logger.debug(f"Added message from {sender} to {recipient} in {phase_name}")
 
@@ -147,15 +136,11 @@ class GameHistory:
             phase.experience_updates[power_name] = update
             logger.debug(f"Added experience update for {power_name} in {phase_name}")
 
-    def get_strategic_directives(self): 
+    def get_strategic_directives(self):
         # returns for last phase only if exists
-        if not self.phases: 
+        if not self.phases:
             return {}
         return self.phases[-1].plans
-
-
-
-
 
     def get_order_history_for_prompt(
         self,
@@ -194,10 +179,7 @@ class GameHistory:
             return str(tag).strip().lower()
 
         engine_phases = {ph.name: ph for ph in getattr(game, "get_phase_history", lambda: [])()}
-        eng2code = {
-            "AUSTRIA": "AUT", "ENGLAND": "ENG", "FRANCE": "FRA",
-            "GERMANY": "GER", "ITALY": "ITA", "RUSSIA": "RUS", "TURKEY": "TUR"
-        }
+        eng2code = {"AUSTRIA": "AUT", "ENGLAND": "ENG", "FRANCE": "FRA", "GERMANY": "GER", "ITALY": "ITA", "RUSSIA": "RUS", "TURKEY": "TUR"}
         norm = game.map.norm
 
         out_lines = ["**ORDER HISTORY (Recent Rounds)**"]
@@ -209,14 +191,14 @@ class GameHistory:
 
             for pwr in sorted(set(ph.orders_by_power) | set(ph.submitted_orders_by_power)):
                 submitted = ph.submitted_orders_by_power.get(pwr, [])
-                accepted  = ph.orders_by_power.get(pwr, [])
+                accepted = ph.orders_by_power.get(pwr, [])
 
                 if isinstance(submitted, str):
                     submitted = [submitted]
                 if isinstance(accepted, str):
                     accepted = [accepted]
 
-                def _norm_keep(o):       # keep WAIVE readable
+                def _norm_keep(o):  # keep WAIVE readable
                     return o if o.upper() == "WAIVE" else norm(o)
 
                 sub_norm = {_norm_keep(o): o for o in submitted}
@@ -264,13 +246,6 @@ class GameHistory:
             return "\n(No orders were issued in recent history)\n"
         return "\n".join(out_lines)
 
-
-
-
-
-
-
-
     def get_messages_this_round(self, power_name: str, current_phase_name: str) -> str:
         current_phase: Optional[Phase] = None
         for phase_obj in self.phases:
@@ -281,7 +256,7 @@ class GameHistory:
         if not current_phase:
             return f"\n(No messages found for current phase: {current_phase_name})\n"
 
-        messages_str = "" 
+        messages_str = ""
 
         global_msgs_content = current_phase.get_global_messages()
         if global_msgs_content:
@@ -299,7 +274,7 @@ class GameHistory:
                 messages_str += "\n"
         else:
             messages_str += "\n**PRIVATE MESSAGES TO/FROM YOU THIS ROUND:**\n (No private messages this round)\n"
-        
+
         if not global_msgs_content and not private_msgs_dict:
             return f"\n(No messages recorded for current phase: {current_phase_name})\n"
 
@@ -313,10 +288,10 @@ class GameHistory:
         """
         if not self.phases:
             return []
-            
+
         # Get the most recent 2 phases including current phase
         recent_phases = self.phases[-2:] if len(self.phases) >= 2 else self.phases[-1:]
-        
+
         # Collect all messages sent TO this power
         messages_to_power = []
         for phase in recent_phases:
@@ -325,48 +300,44 @@ class GameHistory:
                 if msg.recipient == power_name or (msg.recipient == "GLOBAL" and msg.sender != power_name):
                     # Skip if sender is this power (don't need to respond to own messages)
                     if msg.sender != power_name:
-                        messages_to_power.append({
-                            'sender': msg.sender,
-                            'content': msg.content,
-                            'phase': phase.name
-                        })
-        
+                        messages_to_power.append({"sender": msg.sender, "content": msg.content, "phase": phase.name})
+
         # Add debug logging
         logger.info(f"Found {len(messages_to_power)} messages to {power_name} across {len(recent_phases)} phases")
         if not messages_to_power:
             logger.info(f"No messages found for {power_name} to respond to")
-        
+
         # Take the most recent 'limit' messages
         return messages_to_power[-limit:] if messages_to_power else []
-    
+
     def get_ignored_messages_by_power(self, sender_name: str, num_phases: int = 3) -> Dict[str, List[Dict[str, str]]]:
         """
         Identifies which powers are not responding to messages from sender_name.
         Returns a dict mapping power names to their ignored messages.
-        
+
         A message is considered ignored if:
         1. It was sent from sender_name to another power (private)
         2. No response from that power was received in the same or next phase
         """
         ignored_by_power = {}
-        
+
         # Get recent phases
         recent_phases = self.phases[-num_phases:] if self.phases else []
         if not recent_phases:
             return ignored_by_power
-        
+
         for i, phase in enumerate(recent_phases):
             # Get messages sent by sender to specific powers (not global)
             sender_messages = []
             for msg in phase.messages:
                 # Handle both Message objects and dict objects
                 if isinstance(msg, Message):
-                    if msg.sender == sender_name and msg.recipient not in ['GLOBAL', 'ALL']:
+                    if msg.sender == sender_name and msg.recipient not in ["GLOBAL", "ALL"]:
                         sender_messages.append(msg)
                 else:  # Assume dict
-                    if msg['sender'] == sender_name and msg['recipient'] not in ['GLOBAL', 'ALL']:
+                    if msg["sender"] == sender_name and msg["recipient"] not in ["GLOBAL", "ALL"]:
                         sender_messages.append(msg)
-            
+
             # Check for responses in this and next phases
             for msg in sender_messages:
                 # Handle both Message objects and dict objects
@@ -374,37 +345,36 @@ class GameHistory:
                     recipient = msg.recipient
                     msg_content = msg.content
                 else:
-                    recipient = msg['recipient']
-                    msg_content = msg['content']
-                
+                    recipient = msg["recipient"]
+                    msg_content = msg["content"]
+
                 # Look for responses in current phase and next phases
                 found_response = False
-                
+
                 # Check remaining phases starting from current
-                for check_phase in recent_phases[i:min(i+2, len(recent_phases))]:
+                for check_phase in recent_phases[i : min(i + 2, len(recent_phases))]:
                     # Look for messages FROM the recipient TO the sender (direct response)
                     # or FROM the recipient to GLOBAL/ALL that might acknowledge sender
                     response_msgs = []
                     for m in check_phase.messages:
                         if isinstance(m, Message):
-                            if m.sender == recipient and (m.recipient == sender_name or 
-                               (m.recipient in ['GLOBAL', 'ALL'] and sender_name in m.content)):
+                            if m.sender == recipient and (
+                                m.recipient == sender_name or (m.recipient in ["GLOBAL", "ALL"] and sender_name in m.content)
+                            ):
                                 response_msgs.append(m)
                         else:  # Assume dict
-                            if m['sender'] == recipient and (m['recipient'] == sender_name or 
-                               (m['recipient'] in ['GLOBAL', 'ALL'] and sender_name in m.get('content', ''))):
+                            if m["sender"] == recipient and (
+                                m["recipient"] == sender_name or (m["recipient"] in ["GLOBAL", "ALL"] and sender_name in m.get("content", ""))
+                            ):
                                 response_msgs.append(m)
-                    
+
                     if response_msgs:
                         found_response = True
                         break
-                
+
                 if not found_response:
                     if recipient not in ignored_by_power:
                         ignored_by_power[recipient] = []
-                    ignored_by_power[recipient].append({
-                        'phase': phase.name,
-                        'content': msg_content
-                    })
-        
+                    ignored_by_power[recipient].append({"phase": phase.name, "content": msg_content})
+
         return ignored_by_power

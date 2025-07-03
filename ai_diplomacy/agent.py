@@ -10,7 +10,7 @@ import ast
 from ..config import config
 
 # Assuming BaseModelClient is importable from clients.py in the same directory
-from .clients import BaseModelClient, load_model_client
+from .clients import BaseModelClient
 
 # Import load_prompt and the new logging wrapper from utils
 from .utils import load_prompt, run_llm_and_log, log_llm_response, get_prompt_path
@@ -336,7 +336,7 @@ class DiplomacyAgent:
                 )
                 # If even the last resort doesn't give a dict, return empty dict
                 return {}
-        except Exception as e:
+        except Exception:
             logger.error(f"[{self.power_name}] All JSON extraction attempts failed. Original text: {original_text[:500]}...")
             return {}
 
@@ -965,7 +965,7 @@ class DiplomacyAgent:
             other_powers = [p for p in game.powers if p != power_name]
 
             # Create a readable board state string from the board_state dict
-            board_state_str = f"Board State:\n"
+            board_state_str = "Board State:\n"
             for p_name, power_data in board_state.get("powers", {}).items():
                 # Get units and centers from the board state
                 units = power_data.get("units", [])

@@ -16,7 +16,7 @@ from ..config import config
 if TYPE_CHECKING:
     from .clients import BaseModelClient
     # If DiplomacyAgent is used for type hinting for an 'agent' parameter:
-    # from .agent import DiplomacyAgent 
+    # from .agent import DiplomacyAgent
 
 logger = logging.getLogger("utils")
 logger.setLevel(logging.INFO)
@@ -32,12 +32,12 @@ def atomic_write_json(data: dict, filepath: str):
         dir_name = os.path.dirname(filepath)
         if dir_name:
             os.makedirs(dir_name, exist_ok=True)
-        
+
         # Write to a temporary file in the same directory
         temp_filepath = f"{filepath}.tmp.{os.getpid()}"
-        with open(temp_filepath, 'w', encoding='utf-8') as f:
+        with open(temp_filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
-        
+
         # Atomically rename the temporary file to the final destination
         os.rename(temp_filepath, filepath)
     except Exception as e:
@@ -55,15 +55,15 @@ def assign_models_to_powers() -> Dict[str, str]:
     Example usage: define which model each power uses.
     Return a dict: { power_name: model_id, ... }
     POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY']
-    Models supported: o3-mini, o4-mini, o3, gpt-4o, gpt-4o-mini, 
-                    claude-opus-4-20250514, claude-sonnet-4-20250514, claude-3-5-haiku-20241022, claude-3-5-sonnet-20241022, claude-3-7-sonnet-20250219 
-                    gemini-2.0-flash, gemini-2.5-flash-preview-04-17, gemini-2.5-pro-preview-03-25, 
+    Models supported: o3-mini, o4-mini, o3, gpt-4o, gpt-4o-mini,
+                    claude-opus-4-20250514, claude-sonnet-4-20250514, claude-3-5-haiku-20241022, claude-3-5-sonnet-20241022, claude-3-7-sonnet-20250219
+                    gemini-2.0-flash, gemini-2.5-flash-preview-04-17, gemini-2.5-pro-preview-03-25,
                     deepseek-chat, deepseek-reasoner
                     openrouter-meta-llama/llama-3.3-70b-instruct, openrouter-qwen/qwen3-235b-a22b, openrouter-microsoft/phi-4-reasoning-plus:free,
-                    openrouter-deepseek/deepseek-prover-v2:free, openrouter-meta-llama/llama-4-maverick:free, openrouter-nvidia/llama-3.3-nemotron-super-49b-v1:free, 
+                    openrouter-deepseek/deepseek-prover-v2:free, openrouter-meta-llama/llama-4-maverick:free, openrouter-nvidia/llama-3.3-nemotron-super-49b-v1:free,
                     openrouter-google/gemma-3-12b-it:free, openrouter-google/gemini-2.5-flash-preview-05-20
     """
-    
+
     # POWER MODELS
     """
     return {
@@ -77,13 +77,13 @@ def assign_models_to_powers() -> Dict[str, str]:
     }
     """
     # TEST MODELS
-    
+
     return {
         "AUSTRIA": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
         "ENGLAND": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
         "FRANCE": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
         "GERMANY": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
-        "ITALY": "openrouter-mistralai/mistral-small-3.2-24b-instruct",  
+        "ITALY": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
         "RUSSIA": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
         "TURKEY": "openrouter-mistralai/mistral-small-3.2-24b-instruct",
     }
@@ -92,30 +92,26 @@ def assign_models_to_powers() -> Dict[str, str]:
 def get_special_models() -> Dict[str, str]:
     """
     Define models for special purposes like phase summaries and formatting.
-    
+
     These can be overridden via environment variables:
     - AI_DIPLOMACY_NARRATIVE_MODEL: Model for phase summaries (default: "o3")
     - AI_DIPLOMACY_FORMATTER_MODEL: Model for JSON formatting (default: "google/gemini-2.5-flash-lite-preview-06-17")
-    
+
     Returns:
         dict: {
             "phase_summary": model for generating narrative phase summaries,
             "formatter": model for formatting natural language to JSON
         }
-    
+
     Examples:
         # Use Claude for phase summaries
         export AI_DIPLOMACY_NARRATIVE_MODEL="claude-3-5-sonnet-20241022"
-        
+
         # Use a different Gemini model for formatting
         export AI_DIPLOMACY_FORMATTER_MODEL="gemini-2.0-flash"
     """
-    return {
-        "phase_summary": config.AI_DIPLOMACY_NARRATIVE_MODEL,
-        "formatter": config.AI_DIPLOMACY_FORMATTER_MODEL
-    }
-    
-    
+    return {"phase_summary": config.AI_DIPLOMACY_NARRATIVE_MODEL, "formatter": config.AI_DIPLOMACY_FORMATTER_MODEL}
+
 
 def gather_possible_orders(game: Game, power_name: str) -> Dict[str, List[str]]:
     """
@@ -132,7 +128,7 @@ def gather_possible_orders(game: Game, power_name: str) -> Dict[str, List[str]]:
 
 async def get_valid_orders(
     game: Game,
-    client,                       # BaseModelClient instance
+    client,  # BaseModelClient instance
     board_state,
     power_name: str,
     possible_orders: Dict[str, List[str]],
@@ -170,20 +166,24 @@ async def get_valid_orders(
     )
 
     invalid_info: list[str] = []
-    valid:   list[str] = []
+    valid: list[str] = []
     invalid: list[str] = []
 
     # ── 2. Type check ──────────────────────────────────────────
     if not isinstance(raw_orders, list):
-        logger.warning("[%s] Orders received from LLM are not a list: %s. Using fallback.",
-                       power_name, raw_orders)
+        logger.warning("[%s] Orders received from LLM are not a list: %s. Using fallback.", power_name, raw_orders)
         model_error_stats[client.model_name]["order_decoding_errors"] += 1
         return {"valid": client.fallback_orders(possible_orders), "invalid": []}
 
     # ── 3. Round-trip validation with engine ───────────────────
     CODE_TO_ENGINE = {
-        "AUT": "AUSTRIA", "ENG": "ENGLAND", "FRA": "FRANCE",
-        "GER": "GERMANY", "ITA": "ITALY",  "RUS": "RUSSIA", "TUR": "TURKEY",
+        "AUT": "AUSTRIA",
+        "ENG": "ENGLAND",
+        "FRA": "FRANCE",
+        "GER": "GERMANY",
+        "ITA": "ITALY",
+        "RUS": "RUSSIA",
+        "TUR": "TURKEY",
     }
     engine_power = power_name if power_name in game.powers else CODE_TO_ENGINE[power_name]
 
@@ -202,16 +202,16 @@ async def get_valid_orders(
         game.set_orders(engine_power, [upper])
         normed = game.get_orders(engine_power)
 
-        if normed:                   # accepted
+        if normed:  # accepted
             valid.append(normed[0])
-        else:                        # rejected
+        else:  # rejected
             invalid.append(upper)
             invalid_info.append(f"Order '{move}' is invalid for {power_name}")
 
     game.clear_orders(engine_power)  # clean slate for main engine flow
 
     # ── 4. Legacy logging & stats updates ──────────────────────
-    if invalid_info:                                # at least one bad move
+    if invalid_info:  # at least one bad move
         logger.debug("[%s] Invalid orders: %s", power_name, ", ".join(invalid_info))
         model_error_stats[client.model_name]["order_decoding_errors"] += 1
         logger.debug("[%s] Some orders invalid, using fallback.", power_name)
@@ -224,8 +224,6 @@ async def get_valid_orders(
         return {"valid": fallback, "invalid": invalid}
 
     return {"valid": valid, "invalid": invalid}
-
-
 
 
 def normalize_and_compare_orders(
@@ -325,18 +323,18 @@ def load_prompt(filename: str, prompts_dir: Optional[str] = None) -> str:
     3. Elif *prompts_dir* is provided    → join prompts_dir + filename.
     4. Otherwise                         → join the package’s default prompts dir.
     """
-    if os.path.isabs(filename):                    # rule 1
+    if os.path.isabs(filename):  # rule 1
         prompt_path = filename
-    elif os.path.dirname(filename):                # rule 2  (has slash)
+    elif os.path.dirname(filename):  # rule 2  (has slash)
         # If it's a relative path with directory, join with prompts_dir if provided
         if prompts_dir:
             prompt_path = os.path.join(prompts_dir, filename)
         else:
             default_dir = os.path.join(os.path.dirname(__file__), "prompts")
             prompt_path = os.path.join(default_dir, filename)
-    elif prompts_dir:                              # rule 3
+    elif prompts_dir:  # rule 3
         prompt_path = os.path.join(prompts_dir, filename)
-    else:                                          # rule 4
+    else:  # rule 4
         default_dir = os.path.join(os.path.dirname(__file__), "prompts")
         prompt_path = os.path.join(default_dir, filename)
 
@@ -348,16 +346,14 @@ def load_prompt(filename: str, prompts_dir: Optional[str] = None) -> str:
         return ""
 
 
-
-
 # == New LLM Response Logging Function ==
 def log_llm_response(
     log_file_path: str,
     model_name: str,
-    power_name: Optional[str], # Optional for non-power-specific calls like summary
+    power_name: Optional[str],  # Optional for non-power-specific calls like summary
     phase: str,
     response_type: str,
-    raw_input_prompt: str, # Added new parameter for the raw input
+    raw_input_prompt: str,  # Added new parameter for the raw input
     raw_response: str,
     success: str,  # Changed from bool to str
 ):
@@ -365,8 +361,8 @@ def log_llm_response(
     try:
         # Ensure the directory exists
         log_dir = os.path.dirname(log_file_path)
-        if log_dir: # Ensure log_dir is not empty (e.g., if path is just a filename)
-             os.makedirs(log_dir, exist_ok=True)
+        if log_dir:  # Ensure log_dir is not empty (e.g., if path is just a filename)
+            os.makedirs(log_dir, exist_ok=True)
 
         # Check if file exists and has content to determine if we need headers
         file_exists = os.path.isfile(log_file_path) and os.path.getsize(log_file_path) > 0
@@ -374,34 +370,38 @@ def log_llm_response(
         with open(log_file_path, "a", newline="", encoding="utf-8") as csvfile:
             # Added "raw_input" to fieldnames
             fieldnames = ["model", "power", "phase", "response_type", "raw_input", "raw_response", "success"]
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, 
-                                  quoting=csv.QUOTE_ALL,  # Quote all fields to handle commas and newlines
-                                  escapechar='\\')  # Use backslash for escaping
+            writer = csv.DictWriter(
+                csvfile,
+                fieldnames=fieldnames,
+                quoting=csv.QUOTE_ALL,  # Quote all fields to handle commas and newlines
+                escapechar="\\",
+            )  # Use backslash for escaping
 
             if not file_exists:
                 writer.writeheader()  # Write header only if file is new
 
-            writer.writerow({
-                "model": model_name,
-                "power": power_name if power_name else "game", # Use 'game' if no specific power
-                "phase": phase,
-                "response_type": response_type,
-                "raw_input": raw_input_prompt, # Added raw_input to the row
-                "raw_response": raw_response,
-                "success": success,
-            })
+            writer.writerow(
+                {
+                    "model": model_name,
+                    "power": power_name if power_name else "game",  # Use 'game' if no specific power
+                    "phase": phase,
+                    "response_type": response_type,
+                    "raw_input": raw_input_prompt,  # Added raw_input to the row
+                    "raw_response": raw_response,
+                    "success": success,
+                }
+            )
     except Exception as e:
         logger.error(f"Failed to log LLM response to {log_file_path}: {e}", exc_info=True)
-
 
 
 async def run_llm_and_log(
     client: "BaseModelClient",
     prompt: str,
-    log_file_path: str,      # Kept for context, but not used for logging here
+    log_file_path: str,  # Kept for context, but not used for logging here
     power_name: Optional[str],  # Kept for context, but not used for logging here
-    phase: str,                 # Kept for context, but not used for logging here
-    response_type: str,         # Kept for context, but not used for logging here
+    phase: str,  # Kept for context, but not used for logging here
+    response_type: str,  # Kept for context, but not used for logging here
     temperature: float = 0.0,
     *,
     attempts: int = 5,
@@ -428,43 +428,34 @@ async def run_llm_and_log(
         except Exception as e:
             if attempt == attempts - 1:
                 logger.error(
-                    f"API Error during LLM call for {client.model_name}/{power_name}/{response_type} "
-                    f"in phase {phase}: {e}",
+                    f"API Error during LLM call for {client.model_name}/{power_name}/{response_type} in phase {phase}: {e}",
                     exc_info=True,
                 )
             # Back-off before the next attempt (unless this was the last)
-            delay = backoff_base * (backoff_factor ** attempt) + random.uniform(0, jitter)
+            delay = backoff_base * (backoff_factor**attempt) + random.uniform(0, jitter)
             await asyncio.sleep(delay)
 
     return raw_response
 
 
-
-# This generates a few lines of random alphanum chars to inject into the 
-# system prompt. This lets us use temp=0 while still getting variation 
+# This generates a few lines of random alphanum chars to inject into the
+# system prompt. This lets us use temp=0 while still getting variation
 # between trials.
-# Temp=0 is important for better performance on deciding moves, and to 
+# Temp=0 is important for better performance on deciding moves, and to
 # ensure valid json outputs.
 def generate_random_seed(n_lines: int = 5, n_chars_per_line: int = 80):
-        # Generate x lines of y random alphanumeric characters
-        seed_lines = [
-            ''.join(random.choices(string.ascii_letters + string.digits, k=n_chars_per_line))            
-            for _ in range(n_lines)
-        ]
-        random_seed_block = (
-            "<RANDOM SEED PLEASE IGNORE>\n" +
-            "\n".join(seed_lines) +
-            "\n</RANDOM SEED>"
-        )
-        return random_seed_block
+    # Generate x lines of y random alphanumeric characters
+    seed_lines = ["".join(random.choices(string.ascii_letters + string.digits, k=n_chars_per_line)) for _ in range(n_lines)]
+    random_seed_block = "<RANDOM SEED PLEASE IGNORE>\n" + "\n".join(seed_lines) + "\n</RANDOM SEED>"
+    return random_seed_block
 
 
 def get_prompt_path(prompt_name: str) -> str:
     """Get the appropriate prompt path based on USE_UNFORMATTED_PROMPTS setting.
-    
+
     Args:
         prompt_name: Base name of the prompt file (e.g., "conversation_instructions.txt")
-        
+
     Returns:
         str: Either "unformatted/{prompt_name}" or just "{prompt_name}"
     """
@@ -472,36 +463,37 @@ def get_prompt_path(prompt_name: str) -> str:
         return f"unformatted/{prompt_name}"
     else:
         return prompt_name
-    
-def normalize_recipient_name(recipient: str) -> str:
-        """Normalize recipient names to handle LLM typos and abbreviations."""
-        if not recipient:
-            return recipient
-        
-        recipient = recipient.upper().strip()
-        
-        # Handle common LLM typos and abbreviations found in data
-        name_mapping = {
-            'EGMANY': 'GERMANY',
-            'GERMAN': 'GERMANY', 
-            'UK': 'ENGLAND',
-            'BRIT': 'ENGLAND',
-            'ENGLAND': 'ENGLAND',  # Keep as-is
-            'FRANCE': 'FRANCE',    # Keep as-is  
-            'GERMANY': 'GERMANY',  # Keep as-is
-            'ITALY': 'ITALY',      # Keep as-is
-            'AUSTRIA': 'AUSTRIA',  # Keep as-is
-            'RUSSIA': 'RUSSIA',    # Keep as-is
-            'TURKEY': 'TURKEY',    # Keep as-is
-            'Germany': 'GERMANY',
-            'England': 'ENGLAND',
-            'France': 'FRANCE',
-            'Italy': 'ITALY',
-            'Russia': 'RUSSIA',
-            'Austria': 'AUSTRIA',
-            'Turkey': 'TURKEY',    
-        }
-        
-        normalized = name_mapping.get(recipient, recipient)
 
-        return normalized
+
+def normalize_recipient_name(recipient: str) -> str:
+    """Normalize recipient names to handle LLM typos and abbreviations."""
+    if not recipient:
+        return recipient
+
+    recipient = recipient.upper().strip()
+
+    # Handle common LLM typos and abbreviations found in data
+    name_mapping = {
+        "EGMANY": "GERMANY",
+        "GERMAN": "GERMANY",
+        "UK": "ENGLAND",
+        "BRIT": "ENGLAND",
+        "ENGLAND": "ENGLAND",  # Keep as-is
+        "FRANCE": "FRANCE",  # Keep as-is
+        "GERMANY": "GERMANY",  # Keep as-is
+        "ITALY": "ITALY",  # Keep as-is
+        "AUSTRIA": "AUSTRIA",  # Keep as-is
+        "RUSSIA": "RUSSIA",  # Keep as-is
+        "TURKEY": "TURKEY",  # Keep as-is
+        "Germany": "GERMANY",
+        "England": "ENGLAND",
+        "France": "FRANCE",
+        "Italy": "ITALY",
+        "Russia": "RUSSIA",
+        "Austria": "AUSTRIA",
+        "Turkey": "TURKEY",
+    }
+
+    normalized = name_mapping.get(recipient, recipient)
+
+    return normalized

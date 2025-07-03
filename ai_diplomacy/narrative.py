@@ -209,4 +209,3 @@ def _patched_generate_phase_summary(self: Game, phase_key, summary_callback=None
 Game._generate_phase_summary = _patched_generate_phase_summary  # type: ignore[assignment]
 
 LOGGER.info("Game._generate_phase_summary patched with narrative generation.")
-
