@@ -7,7 +7,7 @@ import json_repair
 import json5  # More forgiving JSON parser
 import ast
 
-from ..config import config
+from config import config
 
 # Assuming BaseModelClient is importable from clients.py in the same directory
 from .clients import BaseModelClient
@@ -543,7 +543,6 @@ class DiplomacyAgent:
             raw_response = await run_llm_and_log(
                 client=self.client,
                 prompt=full_prompt,
-                log_file_path=log_file_path,  # Pass the main log file path
                 power_name=self.power_name,
                 phase=game.current_short_phase,
                 response_type="negotiation_diary_raw",  # For run_llm_and_log context
@@ -726,8 +725,7 @@ class DiplomacyAgent:
         try:
             raw_response = await run_llm_and_log(
                 client=self.client,
-                prompt=prompt,
-                log_file_path=log_file_path,
+                prompt=prompt, 
                 power_name=self.power_name,
                 phase=game.current_short_phase,
                 response_type="order_diary",
@@ -871,7 +869,6 @@ class DiplomacyAgent:
             raw_response = await run_llm_and_log(
                 client=self.client,
                 prompt=prompt,
-                log_file_path=log_file_path,
                 power_name=self.power_name,
                 phase=game.current_short_phase,
                 response_type="phase_result_diary",
@@ -992,7 +989,6 @@ class DiplomacyAgent:
             response = await run_llm_and_log(
                 client=self.client,
                 prompt=prompt,
-                log_file_path=log_file_path,
                 power_name=power_name,
                 phase=current_phase,
                 response_type="state_update",

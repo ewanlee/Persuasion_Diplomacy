@@ -94,7 +94,6 @@ async def run_diary_consolidation(
         raw_response = await run_llm_and_log(
             client=consolidation_client,
             prompt=prompt,
-            log_file_path=log_file_path,
             power_name=agent.power_name,
             phase=game.current_short_phase,
             response_type="diary_consolidation",

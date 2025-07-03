@@ -10,7 +10,7 @@ import string
 import json
 import asyncio
 
-from ..config import config
+from config import config
 
 # Avoid circular import for type hinting
 if TYPE_CHECKING:
@@ -398,10 +398,9 @@ def log_llm_response(
 async def run_llm_and_log(
     client: "BaseModelClient",
     prompt: str,
-    log_file_path: str,  # Kept for context, but not used for logging here
-    power_name: Optional[str],  # Kept for context, but not used for logging here
-    phase: str,  # Kept for context, but not used for logging here
-    response_type: str,  # Kept for context, but not used for logging here
+    power_name: Optional[str],
+    phase: str,
+    response_type: str,
     temperature: float = 0.0,
     *,
     attempts: int = 5,

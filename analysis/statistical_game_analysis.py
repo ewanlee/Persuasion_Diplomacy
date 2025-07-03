@@ -29,7 +29,18 @@ from collections import defaultdict, Counter
 import re
 from typing import Dict, List, Tuple, Optional, Any
 import statistics
-from ..models import PowerEnum 
+try:
+    # Absolute import – works when the project root is on sys.path
+    from models import PowerEnum
+except ImportError:
+    try:
+        # Relative import – works when file is executed as part of the ai_diplomacy package
+        from ..models import PowerEnum
+    except ImportError as exc:
+        # Re-raise with context so the root cause is visible
+        raise ImportError(
+            "models.PowerEnum not found via absolute or relative import. "
+        ) from exc
 
 class StatisticalGameAnalyzer:
     """Production-ready analyzer for AI Diplomacy game statistics.

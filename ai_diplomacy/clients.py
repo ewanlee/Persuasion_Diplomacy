@@ -14,6 +14,7 @@ from openai import AsyncOpenAI as AsyncDeepSeekOpenAI  # Alias for clarity
 from anthropic import AsyncAnthropic
 import asyncio
 import requests
+from enum import StrEnum
 
 import google.generativeai as genai
 from together import AsyncTogether
@@ -115,7 +116,6 @@ class BaseModelClient:
             raw_response = await run_llm_and_log(
                 client=self,
                 prompt=prompt,
-                log_file_path=log_file_path,
                 power_name=power_name,
                 phase=phase,
                 response_type="order",  # Context for run_llm_and_log's own error logging
@@ -515,7 +515,6 @@ class BaseModelClient:
         raw_response = await run_llm_and_log(
             client=self,
             prompt=prompt,
-            log_file_path=log_file_path,
             power_name=power_name,
             phase=game_phase,  # Use game_phase for logging
             response_type="plan_reply",  # Changed from 'plan' to avoid confusion
@@ -562,7 +561,6 @@ class BaseModelClient:
             raw_response = await run_llm_and_log(
                 client=self,
                 prompt=raw_input_prompt,
-                log_file_path=log_file_path,
                 power_name=power_name,
                 phase=game_phase,
                 response_type="negotiation",  # For run_llm_and_log's internal context
@@ -737,7 +735,6 @@ class BaseModelClient:
             raw_plan_response = await run_llm_and_log(
                 client=self,  # Pass self (the client instance)
                 prompt=full_prompt,
-                log_file_path=log_file_path,
                 power_name=power_name,
                 phase=game.current_short_phase,
                 response_type="plan_generation",  # More specific type for run_llm_and_log context
@@ -1261,17 +1258,22 @@ def _parse_model_spec(raw: str) -> ModelSpec:
 
     return ModelSpec(prefix, model, base_part or None, key_part or None)
 
+class Prefix(StrEnum):
+    OPENAI            = "openai"
+    OPENAI_REQUESTS   = "openai-requests"
+    OPENAI_RESPONSES  = "openai-responses"
+    ANTHROPIC         = "anthropic"
+    GEMINI            = "gemini"
+    DEEPSEEK          = "deepseek"
+    OPENROUTER        = "openrouter"
+    TOGETHER          = "together"
 
-##############################################################################
-# Factory – load_model_client
-##############################################################################
 def load_model_client(model_id: str, prompts_dir: Optional[str] = None) -> BaseModelClient:
     """
     Recognises strings like
         gpt-4o
-        gpt-4o@https://proxy
-        gpt-4o#sk-123
-        openai:gpt-4o@https://proxy#sk-ABC
+        anthropic:claude-3.7-sonnet
+        openai:llama-3-2-3b@https://localhost:8000#myapikey
     and returns the appropriate client.
 
     • If a prefix is omitted the function falls back to the original
@@ -1287,35 +1289,42 @@ def load_model_client(model_id: str, prompts_dir: Optional[str] = None) -> BaseM
     # 1. Explicit prefix path                                           #
     # ------------------------------------------------------------------ #
     if spec.prefix:
-        match spec.prefix:
-            case "openai" | "oai":
+        try:
+            pref = Prefix(spec.prefix.lower())
+        except ValueError as exc:
+            raise ValueError(
+                f"[load_model_client] unknown prefix '{spec.prefix}'. "
+                "Allowed prefixes: openai, openai-requests, openai-responses, "
+                "anthropic, gemini, deepseek, openrouter, together."
+            ) from exc
+
+        match pref:
+            case Prefix.OPENAI:
                 return OpenAIClient(
                     model_name=spec.model,
                     prompts_dir=prompts_dir,
                     base_url=spec.base,
                     api_key=inline_key,
                 )
-            case "requests" | "req":
+            case Prefix.OPENAI_REQUESTS:
                 return RequestsOpenAIClient(
                     model_name=spec.model,
                     prompts_dir=prompts_dir,
                     base_url=spec.base,
                     api_key=inline_key,
                 )
-            case "responses" | "oai-resp" | "openai-responses":
+            case Prefix.OPENAI_RESPONSES:
                 return OpenAIResponsesClient(spec.model, prompts_dir, api_key=inline_key)
-            case "claude":
+            case Prefix.ANTHROPIC:
                 return ClaudeClient(spec.model, prompts_dir)
-            case "gemini":
+            case Prefix.GEMINI:
                 return GeminiClient(spec.model, prompts_dir)
-            case "deepseek":
+            case Prefix.DEEPSEEK:
                 return DeepSeekClient(spec.model, prompts_dir)
-            case "openrouter" | "or":
+            case Prefix.OPENROUTER:
                 return OpenRouterClient(spec.model, prompts_dir)
-            case "together":
+            case Prefix.TOGETHER:
                 return TogetherAIClient(spec.model, prompts_dir)
-            case _:
-                logger.warning(f"[load_model_client] Unknown prefix '{spec.prefix}', falling back to heuristic path.")
 
     # ------------------------------------------------------------------ #
     # 2. Heuristic fallback path (identical to the original behaviour)   #
@@ -1348,8 +1357,6 @@ def load_model_client(model_id: str, prompts_dir: Optional[str] = None) -> BaseM
         base_url=spec.base,
         api_key=inline_key,
     )
-
-    return OpenAIClient(model_name, prompts_dir, base_url)
 
 
 ##############################################################################

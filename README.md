@@ -281,13 +281,11 @@ python lm_game.py --run_dir results/game_run_005 --prompts_dir ./prompts/my_vari
 * **Model-ID syntax**
 
   ```
-  <prefix:>model[@base_url][#api_key]
+  <client prefix:>model[@base_url][#api_key]
   ```
-  * `prefix:` – optional client (`openai`, `requests`, `claude`, `together`, …).
+  * `prefix:` – specify the client (`openai`, `openai-requests`, `openai-responses`, `anthropic`, `gemini`, `deepseek`, `openrouter`, `together`).
   * `@base_url` – hit a proxy / alt endpoint.
   * `#api_key` – inline key (overrides env vars).
-
-* **Examples**
 
   ```bash
   # gpt-4o on openrouter for all powers:

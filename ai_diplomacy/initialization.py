@@ -72,7 +72,6 @@ async def initialize_agent_state_ext(
         response = await run_llm_and_log(
             client=agent.client,
             prompt=full_prompt,
-            log_file_path=log_file_path,
             power_name=power_name,
             phase=current_phase,
             response_type="initialization",  # Context for run_llm_and_log internal error logging
