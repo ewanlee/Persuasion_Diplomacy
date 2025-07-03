@@ -395,6 +395,35 @@ def log_llm_response(
         logger.error(f"Failed to log LLM response to {log_file_path}: {e}", exc_info=True)
 
 
+import random
+import asyncio
+import logging
+from typing import Optional
+
+# For specific, typed exception handling
+from openai import RateLimitError, APIConnectionError, APITimeoutError
+import aiohttp
+import requests
+
+# Assuming 'BaseModelClient' is defined elsewhere as in your original code
+# from .client import BaseModelClient
+
+logger = logging.getLogger("client")
+
+# A tuple of exception types that we consider safe to retry.
+# This includes network issues, timeouts, rate limits, and the ValueError
+# we now raise for empty/invalid responses.
+RETRYABLE_EXCEPTIONS = (
+    RateLimitError,
+    APIConnectionError,
+    APITimeoutError,
+    aiohttp.ClientError,
+    requests.RequestException,
+    asyncio.TimeoutError,
+    ValueError,  # We explicitly raise this for empty responses, which might be a temporary glitch.
+)
+
+
 async def run_llm_and_log(
     client: "BaseModelClient",
     prompt: str,
@@ -409,32 +438,73 @@ async def run_llm_and_log(
     jitter: float = 0.3,
 ) -> str:
     """
-    Calls `client.generate_response` with retry logic and returns the raw output.
+    Calls `client.generate_response` with robust retry logic and returns the raw output.
 
-    Logging behaviour is identical to the original implementation:
-    - On a final failure (after all retries), it logs a single error with the
-      same message format as before.
-    - If a retry eventually succeeds, no errors are logged.
+    This function handles exceptions gracefully:
+    - It retries on a specific set of `RETRYABLE_EXCEPTIONS` (e.g., network errors, rate limits).
+    - It immediately stops and re-raises critical exceptions like `KeyboardInterrupt`.
+    - It logs a warning for each failed retry attempt.
+    - On final failure after all retries, it logs a detailed error and re-raises the last
+      exception, ensuring the calling code is aware of the failure.
     """
-    raw_response = ""  # Initialize in case of error
+    last_exception: Optional[Exception] = None
 
     for attempt in range(attempts):
         try:
             raw_response = await client.generate_response(prompt, temperature=temperature)
-            if not raw_response:
-                raise Exception("Empty response from client")
+
+            # The clients now raise ValueError, but this is a final safeguard.
+            if not raw_response or not raw_response.strip():
+                raise ValueError("LLM client returned an empty or whitespace-only string.")
+
+            # Success!
             return raw_response
-        except Exception as e:
+
+        except RETRYABLE_EXCEPTIONS as e:
+            last_exception = e
             if attempt == attempts - 1:
-                logger.error(
-                    f"API Error during LLM call for {client.model_name}/{power_name}/{response_type} in phase {phase}: {e}",
-                    exc_info=True,
-                )
-            # Back-off before the next attempt (unless this was the last)
+                # This was the last attempt, so we'll fall through to the final error handling.
+                break
+
+            # Calculate exponential backoff with jitter
             delay = backoff_base * (backoff_factor**attempt) + random.uniform(0, jitter)
+            logger.warning(
+                f"LLM call failed for {client.model_name}/{power_name} (Attempt {attempt + 1}/{attempts}). "
+                f"Error: {type(e).__name__}('{e}'). Retrying in {delay:.2f} seconds."
+            )
             await asyncio.sleep(delay)
 
-    return raw_response
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            # If the user hits Ctrl-C or the task is cancelled, stop immediately.
+            logger.warning(f"LLM call for {client.model_name}/{power_name} was cancelled or interrupted by user.")
+            raise  # Re-raise to allow the application to exit cleanly.
+
+        except Exception as e:
+            last_exception = e
+            if attempt == attempts - 1:
+                # This was the last attempt, so we'll fall through to the final error handling.
+                break
+
+            # Calculate exponential backoff with jitter
+            delay = backoff_base * (backoff_factor**attempt) + random.uniform(0, jitter)
+            logger.error(
+                f"An unexpected error occurred during LLM call for {client.model_name}/{power_name}: {e}"
+                f"LLM call failed for {client.model_name}/{power_name} (Attempt {attempt + 1}/{attempts}). "
+                f"Error: {type(e).__name__}('{e}'). Retrying in {delay:.2f} seconds.",
+                exc_info=True,
+            )
+            await asyncio.sleep(delay)
+
+    # This part of the code is only reached if all retry attempts have failed.
+    final_error_message = (
+        f"API Error after {attempts} attempts for {client.model_name}/{power_name}/{response_type} "
+        f"in phase {phase}. Final error: {type(last_exception).__name__}('{last_exception}')"
+    )
+    logger.error(final_error_message, exc_info=last_exception)
+
+    # Re-raise the last captured exception so the caller knows the operation failed.
+    # 'from None' prevents chaining the exception with the try/except block itself.
+    raise last_exception from None
 
 
 # This generates a few lines of random alphanum chars to inject into the

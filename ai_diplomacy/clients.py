@@ -767,7 +767,6 @@ class BaseModelClient:
 # 2) Concrete Implementations
 ##############################################################################
 
-
 class OpenAIClient(BaseModelClient):
     """Async client for OpenAI-compatible chat-completion endpoints."""
 
@@ -808,18 +807,17 @@ class OpenAIClient(BaseModelClient):
                 max_tokens=self.max_tokens,
             )
 
-            if not response or not response.choices:
-                logger.warning(f"[{self.model_name}] Empty result in generate_response.")
-                return ""
+            if not response or not response.choices or not response.choices[0].message.content:
+                raise ValueError(f"[{self.model_name}] LLM returned an empty or invalid response.")
 
             return response.choices[0].message.content.strip()
 
         except json.JSONDecodeError as json_err:
             logger.error(f"[{self.model_name}] JSON decode error: {json_err}")
-            return ""
+            raise
         except Exception as e:
             logger.error(f"[{self.model_name}] Unexpected error: {e}", exc_info=True)
-            return ""
+            raise
 
 
 class ClaudeClient(BaseModelClient):
@@ -846,16 +844,15 @@ class ClaudeClient(BaseModelClient):
                 messages=[{"role": "user", "content": prompt + "\n\nPROVIDE YOUR RESPONSE BELOW:"}],
                 temperature=temperature,
             )
-            if not response.content:
-                logger.warning(f"[{self.model_name}] Empty content in Claude generate_response. Returning empty.")
-                return ""
-            return response.content[0].text.strip() if response.content else ""
+            if not response.content or not response.content[0].text:
+                raise ValueError(f"[{self.model_name}] LLM returned an empty or invalid response.")
+            return response.content[0].text.strip()
         except json.JSONDecodeError as json_err:
             logger.error(f"[{self.model_name}] JSON decoding failed in generate_response: {json_err}")
-            return ""
+            raise
         except Exception as e:
             logger.error(f"[{self.model_name}] Unexpected error in generate_response: {e}")
-            return ""
+            raise
 
 
 class GeminiClient(BaseModelClient):
@@ -889,12 +886,11 @@ class GeminiClient(BaseModelClient):
             )
 
             if not response or not response.text:
-                logger.warning(f"[{self.model_name}] Empty Gemini generate_response. Returning empty.")
-                return ""
+                raise ValueError(f"[{self.model_name}] LLM returned an empty or invalid response.")
             return response.text.strip()
         except Exception as e:
             logger.error(f"[{self.model_name}] Error in Gemini generate_response: {e}")
-            return ""
+            raise
 
 
 class DeepSeekClient(BaseModelClient):
@@ -930,19 +926,15 @@ class DeepSeekClient(BaseModelClient):
 
             logger.debug(f"[{self.model_name}] Raw DeepSeek response:\n{response}")
 
-            if not response or not response.choices:
-                logger.warning(f"[{self.model_name}] No valid response in generate_response.")
-                return ""
+            if not response or not response.choices or not response.choices[0].message.content:
+                raise ValueError(f"[{self.model_name}] LLM returned an empty or invalid response.")
 
             content = response.choices[0].message.content.strip()
-            if not content:
-                logger.warning(f"[{self.model_name}] DeepSeek returned empty content.")
-                return ""
             return content
 
         except Exception as e:
             logger.error(f"[{self.model_name}] Unexpected error in generate_response: {e}")
-            return ""
+            raise
 
 
 class OpenAIResponsesClient(BaseModelClient):
@@ -983,33 +975,23 @@ class OpenAIResponsesClient(BaseModelClient):
             # Make the API call using aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.post(self.base_url, json=payload, headers=headers) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"[{self.model_name}] API error (status {response.status}): {error_text}")
-                        return ""
-
+                    response.raise_for_status()  # Will raise for non-2xx responses
                     response_data = await response.json()
 
                     # Extract the text from the nested response structure
-                    # The text is in output[1].content[0].text based on the response
                     try:
                         outputs = response_data.get("output", [])
                         if len(outputs) < 2:
-                            logger.warning(f"[{self.model_name}] Unexpected output structure. Full response: {response_data}")
-                            return ""
+                            raise ValueError(f"[{self.model_name}] Unexpected output structure: 'output' list has < 2 items.")
 
-                        # The message is typically in the second output item
                         message_output = outputs[1]
                         if message_output.get("type") != "message":
-                            logger.warning(f"[{self.model_name}] Expected message type in output[1]. Got: {message_output.get('type')}")
-                            return ""
+                            raise ValueError(f"[{self.model_name}] Expected 'message' type in output[1], got '{message_output.get('type')}'.")
 
                         content_list = message_output.get("content", [])
                         if not content_list:
-                            logger.warning(f"[{self.model_name}] Empty content list in message output")
-                            return ""
+                            raise ValueError(f"[{self.model_name}] Empty 'content' list in message output.")
 
-                        # Look for the content item with type 'output_text'
                         text_content = ""
                         for content_item in content_list:
                             if content_item.get("type") == "output_text":
@@ -1017,21 +999,20 @@ class OpenAIResponsesClient(BaseModelClient):
                                 break
 
                         if not text_content:
-                            logger.warning(f"[{self.model_name}] No output_text found in content. Full content: {content_list}")
-                            return ""
+                            raise ValueError(f"[{self.model_name}] No 'output_text' found in content or it was empty.")
 
                         return text_content.strip()
 
                     except (KeyError, IndexError, TypeError) as e:
-                        logger.error(f"[{self.model_name}] Error parsing response structure: {e}. Full response: {response_data}")
-                        return ""
+                        # Wrap parsing error in a more informative exception
+                        raise ValueError(f"[{self.model_name}] Error parsing response structure: {e}") from e
 
         except aiohttp.ClientError as e:
             logger.error(f"[{self.model_name}] HTTP client error in generate_response: {e}")
-            return ""
+            raise
         except Exception as e:
             logger.error(f"[{self.model_name}] Unexpected error in generate_response: {e}")
-            return ""
+            raise
 
 
 class OpenRouterClient(BaseModelClient):
@@ -1074,16 +1055,10 @@ class OpenRouterClient(BaseModelClient):
                 temperature=temperature,
             )
 
-            if not response.choices:
-                logger.warning(f"[{self.model_name}] OpenRouter returned no choices")
-                return ""
+            if not response.choices or not response.choices[0].message.content:
+                raise ValueError(f"[{self.model_name}] LLM returned an empty or invalid response.")
 
             content = response.choices[0].message.content.strip()
-            if not content:
-                logger.warning(f"[{self.model_name}] OpenRouter returned empty content")
-                return ""
-
-            # Parse or return the raw content
             return content
 
         except Exception as e:
@@ -1091,15 +1066,13 @@ class OpenRouterClient(BaseModelClient):
             # Check if it's a specific OpenRouter error
             if "429" in error_msg or "rate" in error_msg.lower():
                 logger.warning(f"[{self.model_name}] OpenRouter rate limit error: {e}")
-                # The retry logic in run_llm_and_log will handle this
                 raise e  # Re-raise to trigger retry
             elif "provider" in error_msg.lower() and "error" in error_msg.lower():
                 logger.error(f"[{self.model_name}] OpenRouter provider error: {e}")
-                # This might be a temporary issue with the upstream provider
                 raise e  # Re-raise to trigger retry or fallback
             else:
                 logger.error(f"[{self.model_name}] Error in OpenRouter generate_response: {e}")
-                return ""
+                raise
 
 
 ##############################################################################
@@ -1143,19 +1116,17 @@ class TogetherAIClient(BaseModelClient):
                 # max_tokens=2048, # Example
             )
 
-            if response.choices and response.choices[0].message and response.choices[0].message.content is not None:
-                content = response.choices[0].message.content
-                logger.debug(f"[{self.model_name}] Received response (first 100 chars): {content[:100]}...")
-                return content.strip()
-            else:
-                logger.warning(f"[{self.model_name}] No content in response from Together AI or response structure unexpected: {response}")
-                return ""
+            if not response.choices or not response.choices[0].message or response.choices[0].message.content is None:
+                raise ValueError(f"[{self.model_name}] LLM returned an empty or invalid response.")
+
+            content = response.choices[0].message.content
+            return content.strip()
         except TogetherAPIError as e:
             logger.error(f"[{self.model_name}] Together AI API error: {e}", exc_info=True)
-            return f"Error: Together AI API error - {str(e)}"  # Return a string with error info
+            raise
         except Exception as e:
             logger.error(f"[{self.model_name}] Unexpected error in TogetherAIClient: {e}", exc_info=True)
-            return f"Error: Unexpected error - {str(e)}"  # Return a string with error info
+            raise
 
 
 ##############################################################################
@@ -1218,16 +1189,18 @@ class RequestsOpenAIClient(BaseModelClient):
         loop = asyncio.get_running_loop()
         try:
             data = await loop.run_in_executor(None, self._post_sync, payload)
+            if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
+                raise ValueError(f"[{self.model_name}] LLM returned an empty or invalid response.")
             return data["choices"][0]["message"]["content"].strip()
         except (KeyError, IndexError, TypeError) as e:
             logger.error(f"[{self.model_name}] Bad response format: {e}", exc_info=True)
-            return ""
+            raise
         except requests.RequestException as e:
             logger.error(f"[{self.model_name}] HTTP error: {e}", exc_info=True)
-            return ""
+            raise
         except Exception as e:
             logger.error(f"[{self.model_name}] Unexpected error: {e}", exc_info=True)
-            return ""
+            raise
 
 
 ##############################################################################
