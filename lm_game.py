@@ -54,6 +54,10 @@ def _str2bool(v: str) -> bool:
         return False
     raise argparse.ArgumentTypeError(f"Boolean value expected, got '{v}'")
 
+def _detect_victory(game: Game, threshold: int = 18) -> bool:
+    """True iff any power already owns ≥ `threshold` supply centres."""
+    return any(len(p.centers) >= threshold for p in game.powers.values())
+
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description="Run a Diplomacy game simulation with configurable parameters."
@@ -279,6 +283,13 @@ async def main():
         if not hasattr(game, "phase_summaries"):
             game.phase_summaries = {}
         agents = await initialize_new_game(run_config, game, game_history, llm_log_file_path)
+
+    if _detect_victory(game):
+        game.is_game_done = True          # short-circuit the main loop
+        logger.info(
+            "Game already complete on load – a power has ≥18 centres "
+            f"(current phase {game.get_current_phase()})."
+        )
 
     # --- 4. Main Game Loop ---
     while not game.is_game_done:

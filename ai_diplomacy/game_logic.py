@@ -6,6 +6,7 @@ import asyncio
 from typing import Dict, Tuple, Optional, Any
 from argparse import Namespace
 from pathlib import Path
+import re
 
 from diplomacy import Game
 from diplomacy.utils.export import to_saved_game_format, from_saved_game_format
@@ -65,28 +66,17 @@ def deserialize_agent(agent_data: dict, prompts_dir: Optional[str] = None, *, ov
 
 # --- State Management ---
 
-# game_logic.py
-_PHASE_ORDER = ["M", "R", "A"]  # Movement → Retreats → Adjustments
+_PHASE_RE = re.compile(r"^[SW](\d{4})[MRA]$")
 
-
-def _next_phase_name(short: str) -> str:
+def _phase_year(phase_name: str) -> Optional[int]:
     """
-    Return the Diplomacy phase string that chronologically follows *short*.
-    (E.g.  S1901M → S1901R,  S1901R → W1901A,  W1901A → S1902M)
+    Return the four-digit year encoded in standard phase strings
+    like 'S1901M'.  For anything non-standard (e.g. 'COMPLETE')
+    return None so callers can decide how to handle it.
     """
-    season = short[0]  # 'S' | 'W'
-    year = int(short[1:5])
-    typ = short[-1]  # 'M' | 'R' | 'A'
+    m = _PHASE_RE.match(phase_name)
+    return int(m.group(1)) if m else None
 
-    idx = _PHASE_ORDER.index(typ)
-    if idx < 2:  # still in the same season
-        return f"{season}{year}{_PHASE_ORDER[idx + 1]}"
-
-    # typ was 'A'  → roll season
-    if season == "S":  # summer → winter, same year
-        return f"W{year}M"
-    else:  # winter→ spring, next year
-        return f"S{year + 1}M"
 
 
 def save_game_state(
@@ -139,7 +129,8 @@ def save_game_state(
     current_state_agents = {p_name: serialize_agent(p_agent) for p_name, p_agent in agents.items() if not game.powers[p_name].is_eliminated()}
 
     for phase_block in saved_game.get("phases", []):
-        if int(phase_block["name"][1:5]) > run_config.max_year:
+        year_val = _phase_year(phase_block["name"])
+        if year_val is not None and year_val > run_config.max_year:
             break
 
         phase_name = phase_block["name"]
