@@ -20,7 +20,7 @@ os.environ["GRPC_POLL_STRATEGY"] = "poll"  # Use 'poll' for macOS compatibility
 
 from diplomacy import Game
 
-from ai_diplomacy.utils import get_valid_orders, gather_possible_orders
+from ai_diplomacy.utils import get_valid_orders, gather_possible_orders, parse_prompts_dir_arg
 from ai_diplomacy.negotiations import conduct_negotiations
 from ai_diplomacy.planning import planning_phase
 from ai_diplomacy.game_history import GameHistory
@@ -31,6 +31,7 @@ from ai_diplomacy.game_logic import (
     initialize_new_game,
 )
 from ai_diplomacy.diary_logic import run_diary_consolidation
+from config import config
 
 dotenv.load_dotenv()
 
@@ -177,15 +178,17 @@ async def main():
     args = parse_arguments()
     start_whole = time.time()
 
-    # honour --simple_prompts before anything else needs it
     if args.simple_prompts:
-        os.environ["SIMPLE_PROMPTS"] = "1"                   # read by prompt_constructor
+        config.SIMPLE_PROMPTS = True
         if args.prompts_dir is None:
             pkg_root = os.path.join(os.path.dirname(__file__), "ai_diplomacy")
             args.prompts_dir = os.path.join(pkg_root, "prompts_simple")
 
-    if args.prompts_dir and not os.path.isdir(args.prompts_dir):
-        print(f"ERROR: Prompts directory not found: {args.prompts_dir}", file=sys.stderr)
+    # Prompt-dir validation & mapping
+    try:
+        args.prompts_dir_map = parse_prompts_dir_arg(args.prompts_dir)
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
 
     # Handle phase summaries flag - import narrative module only if enabled
@@ -197,10 +200,10 @@ async def main():
 
     # Handle unformatted prompts flag
     if args.use_unformatted_prompts:
-        os.environ["USE_UNFORMATTED_PROMPTS"] = "1"
+        config.USE_UNFORMATTED_PROMPTS = True
         logger.info("Using two-step approach: unformatted prompts + Gemini Flash formatting")
     else:
-        os.environ["USE_UNFORMATTED_PROMPTS"] = "0"
+        config.USE_UNFORMATTED_PROMPTS = False
         logger.info("Using original single-step formatted prompts")
 
     # --- 1. Determine Run Directory and Mode (New vs. Resume) ---
@@ -404,8 +407,10 @@ async def main():
         # Diary Consolidation
         if current_short_phase.startswith("S") and current_short_phase.endswith("M"):
             consolidation_tasks = [
-                run_diary_consolidation(agent, game, llm_log_file_path, prompts_dir=run_config.prompts_dir)
-                for agent in agents.values() if not game.powers[agent.power_name].is_eliminated()
+                run_diary_consolidation(agent, game, llm_log_file_path,
+                                        prompts_dir=agent.prompts_dir)
+                for agent in agents.values()
+                if not game.powers[agent.power_name].is_eliminated()
             ]
             if consolidation_tasks:
                 await asyncio.gather(*consolidation_tasks, return_exceptions=True)
@@ -430,9 +435,14 @@ async def main():
     # Save final overview stats
     overview_file_path = os.path.join(run_dir, "overview.jsonl")
     with open(overview_file_path, "w") as overview_file:
+        # ---- make Namespace JSON-safe ----------------------------------
+        cfg = vars(run_config).copy()
+        if "prompts_dir_map" in cfg and isinstance(cfg["prompts_dir_map"], dict):
+            cfg["prompts_dir_map"] = {p: str(path) for p, path in cfg["prompts_dir_map"].items()}
+        # ----------------------------------------------------------------
         overview_file.write(json.dumps(model_error_stats) + "\n")
         overview_file.write(json.dumps(getattr(game, 'power_model_map', {})) + "\n")
-        overview_file.write(json.dumps(vars(run_config)) + "\n")
+        overview_file.write(json.dumps(cfg) + "\n")
 
     logger.info("Done.")
 

@@ -12,8 +12,9 @@ import asyncio
 from openai import RateLimitError, APIConnectionError, APITimeoutError
 import aiohttp
 import requests
-
+from pathlib import Path
 from config import config
+from models import POWERS_ORDER
 
 # Avoid circular import for type hinting
 if TYPE_CHECKING:
@@ -313,40 +314,34 @@ def normalize_and_compare_orders(
     return orders_not_accepted, orders_not_issued
 
 
-# Helper to load prompt text from file relative to the expected 'prompts' dir
-def load_prompt(filename: str, prompts_dir: Optional[str] = None) -> str:
+def load_prompt(fname: str | Path, prompts_dir: str | Path | None = None) -> str:
     """
-    Return the contents of *filename* while never joining paths twice.
+    Resolve *fname* to an absolute path and return its contents.
+    Resolution rules (first match wins):
 
-    Logic
-    -----
-    1. If *filename* is absolute         → use it directly.
-    2. Elif *filename* already contains a path component (e.g. 'x/y.txt')
-       → treat it as a relative path and use it directly.
-    3. Elif *prompts_dir* is provided    → join prompts_dir + filename.
-    4. Otherwise                         → join the package’s default prompts dir.
+    1. If *fname* is absolute -> use as-is.
+    2. If *prompts_dir* is given -> prompts_dir / fname
+    3. Otherwise -> <package_root>/prompts / fname
     """
-    if os.path.isabs(filename):  # rule 1
-        prompt_path = filename
-    elif os.path.dirname(filename):  # rule 2  (has slash)
-        # If it's a relative path with directory, join with prompts_dir if provided
-        if prompts_dir:
-            prompt_path = os.path.join(prompts_dir, filename)
+
+    fname = Path(fname)
+
+    if fname.is_absolute():
+        prompt_path = fname
+
+    else:
+        if prompts_dir is not None:
+            prompt_path = Path(prompts_dir) / fname
         else:
-            default_dir = os.path.join(os.path.dirname(__file__), "prompts")
-            prompt_path = os.path.join(default_dir, filename)
-    elif prompts_dir:  # rule 3
-        prompt_path = os.path.join(prompts_dir, filename)
-    else:  # rule 4
-        default_dir = os.path.join(os.path.dirname(__file__), "prompts")
-        prompt_path = os.path.join(default_dir, filename)
+            package_root = Path(__file__).resolve().parent
+            prompt_path = package_root / "prompts" / fname
 
     try:
-        with open(prompt_path, "r", encoding="utf-8") as fh:
-            return fh.read().strip()
+        return prompt_path.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
-        logger.error(f"Prompt file not found: {prompt_path}")
-        return ""
+        logger.error("Prompt file not found: %s", prompt_path)
+        raise Exception("Prompt file not found: " + prompt_path)
+
 
 
 # == New LLM Response Logging Function ==
@@ -552,3 +547,35 @@ def normalize_recipient_name(recipient: str) -> str:
     normalized = name_mapping.get(recipient, recipient)
 
     return normalized
+
+def parse_prompts_dir_arg(raw: str | None) -> Dict[str, Path]:
+    """
+    Resolve --prompts_dir into a mapping {power: Path}.
+    Accepts either a single path or 7 comma-separated paths.
+
+    Every path is normalised to an **absolute** Path object
+    (using Path(...).expanduser().resolve()) and checked for existence.
+    """
+    if not raw:
+        return {}
+
+    parts = [s.strip() for s in raw.split(",") if s.strip()]
+    if len(parts) not in {1, 7}:
+        raise ValueError(
+            f"--prompts_dir expects 1 or 7 paths, got {len(parts)} "
+            f"({raw})"
+        )
+
+    # Expand/resolve & verify
+    def _norm(p: str) -> Path:
+        path = Path(p).expanduser().resolve()
+        if not path.is_dir():
+            raise FileNotFoundError(f"Prompt directory not found: {path}")
+        return path
+
+    if len(parts) == 1:
+        path = _norm(parts[0])
+        return {pwr: path for pwr in POWERS_ORDER}
+
+    paths = [_norm(p) for p in parts]
+    return dict(zip(POWERS_ORDER, paths))

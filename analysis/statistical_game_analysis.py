@@ -363,7 +363,10 @@ class StatisticalGameAnalyzer:
                 
                 # Categorize by relationship
                 recipient = msg.get('recipient_power')
-                normalized_recipient = self._normalize_recipient_name(recipient)
+                try:
+                    normalized_recipient = PowerEnum(recipient).value
+                except ValueError:
+                    normalized_recipient = None
                 
                 # Skip self-messages and invalid recipients
                 if normalized_recipient and normalized_recipient != power and normalized_recipient in relationships:

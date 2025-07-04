@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, List
 
 # your “typo → canonical” map
 _POWER_ALIASES = {
@@ -7,8 +7,19 @@ _POWER_ALIASES = {
     "GERMAN": "GERMANY",
     "UK": "ENGLAND",
     "BRIT": "ENGLAND",
+    "Germany": "GERMANY",
+    "England": "ENGLAND",
+    "France": "FRANCE",
+    "Italy": "ITALY",
+    "Russia": "RUSSIA",
+    "Austria": "AUSTRIA",
+    "Turkey": "TURKEY",
 }
 
+POWERS_ORDER: List[str] = [
+    "AUSTRIA", "ENGLAND", "FRANCE", "GERMANY",
+    "ITALY", "RUSSIA", "TURKEY",
+]
 
 class PowerEnum(str, Enum):
     AUSTRIA = "AUSTRIA"

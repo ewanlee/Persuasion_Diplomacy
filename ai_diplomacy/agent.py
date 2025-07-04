@@ -25,29 +25,6 @@ logger = logging.getLogger(__name__)
 ALL_POWERS = frozenset({"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"})
 ALLOWED_RELATIONSHIPS = ["Enemy", "Unfriendly", "Neutral", "Friendly", "Ally"]
 
-
-# == New: Helper function to load prompt files reliably ==
-def _load_prompt_file(filename: str, prompts_dir: Optional[str] = None) -> Optional[str]:
-    """Loads a prompt template from the prompts directory."""
-    try:
-        if prompts_dir:
-            filepath = os.path.join(prompts_dir, filename)
-        else:
-            # Construct path relative to this file's location
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            default_prompts_dir = os.path.join(current_dir, "prompts")
-            filepath = os.path.join(default_prompts_dir, filename)
-
-        with open(filepath, "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        logger.error(f"Prompt file not found: {filepath}")
-        return None
-    except Exception as e:
-        logger.error(f"Error loading prompt file {filepath}: {e}")
-        return None
-
-
 class DiplomacyAgent:
     """
     Represents a stateful AI agent playing as a specific power in Diplomacy.
@@ -452,7 +429,7 @@ class DiplomacyAgent:
 
         try:
             # Load the prompt template file
-            prompt_template_content = _load_prompt_file(get_prompt_path("negotiation_diary_prompt.txt"), prompts_dir=self.prompts_dir)
+            prompt_template_content = load_prompt(get_prompt_path("negotiation_diary_prompt.txt"), prompts_dir=self.prompts_dir)
             if not prompt_template_content:
                 logger.error(f"[{self.power_name}] Could not load {get_prompt_path('negotiation_diary_prompt.txt')}. Skipping diary entry.")
                 success_status = "Failure: Prompt file not loaded"
@@ -668,7 +645,7 @@ class DiplomacyAgent:
         logger.info(f"[{self.power_name}] Generating order diary entry for {game.current_short_phase}...")
 
         # Load the prompt template
-        prompt_template = _load_prompt_file(get_prompt_path("order_diary_prompt.txt"), prompts_dir=self.prompts_dir)
+        prompt_template = load_prompt(get_prompt_path("order_diary_prompt.txt"), prompts_dir=self.prompts_dir)
         if not prompt_template:
             logger.error(f"[{self.power_name}] Could not load {get_prompt_path('order_diary_prompt.txt')}. Skipping diary entry.")
             return
@@ -815,7 +792,7 @@ class DiplomacyAgent:
         logger.info(f"[{self.power_name}] Generating phase result diary entry for {game.current_short_phase}...")
 
         # Load the template
-        prompt_template = _load_prompt_file("phase_result_diary_prompt.txt", prompts_dir=self.prompts_dir)
+        prompt_template = load_prompt("phase_result_diary_prompt.txt", prompts_dir=self.prompts_dir)
         if not prompt_template:
             logger.error(f"[{self.power_name}] Could not load phase_result_diary_prompt.txt. Skipping diary entry.")
             return
@@ -921,7 +898,7 @@ class DiplomacyAgent:
 
         try:
             # 1. Construct the prompt using the unformatted state update prompt file
-            prompt_template = _load_prompt_file(get_prompt_path("state_update_prompt.txt"), prompts_dir=self.prompts_dir)
+            prompt_template = load_prompt(get_prompt_path("state_update_prompt.txt"), prompts_dir=self.prompts_dir)
             if not prompt_template:
                 logger.error(f"[{power_name}] Could not load {get_prompt_path('state_update_prompt.txt')}. Skipping state update.")
                 return

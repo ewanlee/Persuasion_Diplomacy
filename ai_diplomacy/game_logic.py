@@ -5,6 +5,7 @@ import json
 import asyncio
 from typing import Dict, Tuple, Optional, Any
 from argparse import Namespace
+from pathlib import Path
 
 from diplomacy import Game
 from diplomacy.utils.export import to_saved_game_format, from_saved_game_format
@@ -150,12 +151,15 @@ def save_game_state(
         # 3b.  For *this* phase we also inject the fresh agent snapshot
         #      and the plans written during the turn.
         if phase_name == completed_phase_name:
-            phase_block["config"] = vars(run_config)
+            # ---- make run_config serialisable ---------------------------------
+            cfg = vars(run_config).copy()
+            if "prompts_dir_map" in cfg and isinstance(cfg["prompts_dir_map"], dict):
+                cfg["prompts_dir_map"] = {p: str(path) for p, path in cfg["prompts_dir_map"].items()}
+            if isinstance(cfg.get("prompts_dir"), Path):
+                cfg["prompts_dir"] = str(cfg["prompts_dir"])
+            # -------------------------------------------------------------------
+            phase_block["config"] = cfg
             phase_block["state_agents"] = current_state_agents
-
-            # Plans for this phase – may be empty in non-movement phases.
-            phase_obj = game_history._get_phase(phase_name)
-            phase_block["state_history_plans"] = phase_obj.plans if phase_obj else {}
 
     # -------------------------------------------------------------- #
     # 4.  Attach top-level metadata and write atomically.            #
@@ -254,9 +258,14 @@ def load_game_state(
 
         if "state_agents" in last_phase_data:
             logger.info("Rebuilding agents from saved state...")
-            prompts_dir_from_config = run_config.prompts_dir if run_config and hasattr(run_config, "prompts_dir") else None
+            
             for power_name, agent_data in last_phase_data["state_agents"].items():
                 override_id = power_model_map.get(power_name)
+                prompts_dir_from_config = (
+                    run_config.prompts_dir_map.get(power_name)
+                    if getattr(run_config, "prompts_dir_map", None)
+                    else run_config.prompts_dir  # fallback to old single path
+                )
                 agents[power_name] = deserialize_agent(
                     agent_data,
                     prompts_dir=prompts_dir_from_config,
@@ -284,8 +293,15 @@ def load_game_state(
     return game, agents, game_history, run_config
 
 
-async def initialize_new_game(args: Namespace, game: Game, game_history: GameHistory, llm_log_file_path: str) -> Dict[str, DiplomacyAgent]:
-    """Initializes agents for a new game."""
+# ai_diplomacy/game_logic.py
+async def initialize_new_game(
+    args: Namespace,
+    game: Game,
+    game_history: GameHistory,
+    llm_log_file_path: str,
+) -> Dict[str, DiplomacyAgent]:
+    """Initializes agents for a new game (supports per-power prompt directories)."""
+
     powers_order = sorted(list(ALL_POWERS))
 
     # Parse token limits
@@ -300,8 +316,7 @@ async def initialize_new_game(args: Namespace, game: Game, game_history: GameHis
         else:
             logger.warning("Expected 7 values for --max_tokens_per_model, using default.")
 
-    # Handle power model mapping
-
+    # Handle power-model mapping
     if args.models:
         provided_models = [name.strip() for name in args.models.split(",")]
         if len(provided_models) == len(powers_order):
@@ -309,25 +324,51 @@ async def initialize_new_game(args: Namespace, game: Game, game_history: GameHis
         elif len(provided_models) == 1:
             game.power_model_map = dict(zip(powers_order, provided_models * 7))
         else:
-            logger.error(f"Expected {len(powers_order)} models for --models but got {len(provided_models)}.")
-            raise Exception("Invalid number of models. Models list must be either exactly 1 or 7 models, comma delimited.")
+            logger.error(
+                f"Expected {len(powers_order)} models for --models but got {len(provided_models)}."
+            )
+            raise Exception(
+                "Invalid number of models. Models list must be either exactly 1 or 7 models, comma delimited."
+            )
     else:
         game.power_model_map = assign_models_to_powers()
 
-    agents = {}
+    agents: Dict[str, DiplomacyAgent] = {}
     initialization_tasks = []
     logger.info("Initializing Diplomacy Agents for each power...")
+
     for power_name, model_id in game.power_model_map.items():
         if not game.powers[power_name].is_eliminated():
+            # Determine the prompts directory for this power
+            if hasattr(args, "prompts_dir_map") and args.prompts_dir_map:
+                prompts_dir_for_power = args.prompts_dir_map.get(power_name, args.prompts_dir)
+            else:
+                prompts_dir_for_power = args.prompts_dir
+
             try:
-                client = load_model_client(model_id, prompts_dir=args.prompts_dir)
+                client = load_model_client(model_id, prompts_dir=prompts_dir_for_power)
                 client.max_tokens = model_max_tokens[power_name]
-                agent = DiplomacyAgent(power_name=power_name, client=client, prompts_dir=args.prompts_dir)
+                agent = DiplomacyAgent(
+                    power_name=power_name,
+                    client=client,
+                    prompts_dir=prompts_dir_for_power,
+                )
                 agents[power_name] = agent
                 logger.info(f"Preparing initialization task for {power_name} with model {model_id}")
-                initialization_tasks.append(initialize_agent_state_ext(agent, game, game_history, llm_log_file_path, prompts_dir=args.prompts_dir))
+                initialization_tasks.append(
+                    initialize_agent_state_ext(
+                        agent,
+                        game,
+                        game_history,
+                        llm_log_file_path,
+                        prompts_dir=prompts_dir_for_power,
+                    )
+                )
             except Exception as e:
-                logger.error(f"Failed to create agent or client for {power_name} with model {model_id}: {e}", exc_info=True)
+                logger.error(
+                    f"Failed to create agent or client for {power_name} with model {model_id}: {e}",
+                    exc_info=True,
+                )
 
     logger.info(f"Running {len(initialization_tasks)} agent initializations concurrently...")
     initialization_results = await asyncio.gather(*initialization_tasks, return_exceptions=True)
@@ -342,3 +383,4 @@ async def initialize_new_game(args: Namespace, game: Game, game_history: GameHis
                 logger.info(f"Successfully initialized agent state for {power_name}.")
 
     return agents
+

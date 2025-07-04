@@ -10,8 +10,8 @@ if False:  # TYPE_CHECKING
     from diplomacy.models.game import GameHistory
     from .agent import DiplomacyAgent
 
-from .agent import ALL_POWERS, ALLOWED_RELATIONSHIPS, _load_prompt_file
-from .utils import run_llm_and_log, log_llm_response, get_prompt_path
+from .agent import ALL_POWERS, ALLOWED_RELATIONSHIPS
+from .utils import run_llm_and_log, log_llm_response, get_prompt_path, load_prompt
 from .prompt_constructor import build_context_prompt
 from .formatter import format_with_gemini_flash, FORMAT_INITIAL_STATE
 
@@ -37,10 +37,7 @@ async def initialize_agent_state_ext(
     try:
         # Load the prompt template
         allowed_labels_str = ", ".join(ALLOWED_RELATIONSHIPS)
-        initial_prompt_template = _load_prompt_file(get_prompt_path("initial_state_prompt.txt"), prompts_dir=prompts_dir)
-        if not initial_prompt_template:
-            logger.error(f"[{power_name}] Could not load {get_prompt_path('initial_state_prompt.txt')}. Cannot initialize.")
-            return
+        initial_prompt_template = load_prompt(get_prompt_path("initial_state_prompt.txt"), prompts_dir=prompts_dir)
 
         # Format the prompt with variables
         initial_prompt = initial_prompt_template.format(power_name=power_name, allowed_labels_str=allowed_labels_str)
