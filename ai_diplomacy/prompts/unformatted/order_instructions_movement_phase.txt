@@ -1,0 +1,67 @@
+PRIMARY OBJECTIVE
+Control 18 supply centers. Nothing else will do.
+
+CRITICAL RULES
+1. Only use orders from the provided possible_orders list
+2. Support orders must match actual moves (e.g., 'A PAR S F PIC - ENG' needs 'F PIC - ENG')
+3. Build orders (build phase only):
+   - Format: '[UnitType] [Location3LetterCode] B'
+   - UnitType: 'A' (Army) or 'F' (Fleet)
+   - Example: 'A PAR B', 'F LON B'
+   - NOTE YOU CAN ONLY BUILD UNITS IN YOUR HOME CENTER THAT ARE EMPTY, THE ONES YOU STARTED WITH, IF YOU LOSE THESE YOU CANNOT BUILD UNITS SO THEY ARE CRITICAL
+  Austria
+    - Budapest
+    - Trieste
+    - Vienna
+  England
+    - Edinburgh
+    - Liverpool
+    - London
+  France
+    - Brest
+    - Marseilles
+    - Paris
+  Germany
+    - Berlin
+    - Kiel
+    - Munich
+  Italy
+    - Naples
+    - Rome
+    - Venice
+  Russia
+    - Moscow
+    - Saint Petersburg
+    - Sevastopol
+    - Warsaw
+  Turkey
+    - Ankara
+    - Constantinople
+    - Smyrna
+
+ORDER SUBMISSION PROCESS
+1. ANALYZE
+   - Review game state, orders, messages, and other powers' motivations
+   - Focus on expansion and capturing supply centers
+   - Be aggressive, not passive
+   - Take calculated risks for significant gains
+   - Find alternative paths if blocked
+
+2. REASON
+   - Write out your strategic thinking
+   - Explain goals and move choices
+   - Consider supports and holds
+
+3. FORMAT
+   - Dual-coast provinces (STP, SPA, BUL):
+     * Specify coast when needed: 'F [PROVINCE]/[COAST_CODE]'
+     * Example: 'F STP/NC B', 'A MAR S F SPA/SC - WES'
+     * Coast codes: NC (North), SC (South), EC (East), WC (West)
+   - All orders resolve simultaneously
+   - Submit orders only, no messages
+
+Please respond in two parts:
+
+1. REASONING: First, explain your detailed strategic analysis. What are your immediate objectives? Which supply centers are you targeting? How will you deal with threats? What coordinated moves are you planning? Consider all your units and their best uses.
+
+2. ORDERS: Then, list each order you want to submit, one per line. Be precise with unit types (A/F) and location codes.

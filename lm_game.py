@@ -20,18 +20,18 @@ os.environ["GRPC_POLL_STRATEGY"] = "poll"  # Use 'poll' for macOS compatibility
 
 from diplomacy import Game
 
-from ai_diplomacy.utils import get_valid_orders, gather_possible_orders
+from ai_diplomacy.utils import get_valid_orders, gather_possible_orders, parse_prompts_dir_arg
 from ai_diplomacy.negotiations import conduct_negotiations
 from ai_diplomacy.planning import planning_phase
 from ai_diplomacy.game_history import GameHistory
 from ai_diplomacy.agent import DiplomacyAgent
-# import ai_diplomacy.narrative
 from ai_diplomacy.game_logic import (
     save_game_state,
     load_game_state,
     initialize_new_game,
 )
 from ai_diplomacy.diary_logic import run_diary_consolidation
+from config import config
 
 dotenv.load_dotenv()
 
@@ -53,6 +53,10 @@ def _str2bool(v: str) -> bool:
     if v in {"0", "false", "f", "no", "n"}:
         return False
     raise argparse.ArgumentTypeError(f"Boolean value expected, got '{v}'")
+
+def _detect_victory(game: Game, threshold: int = 18) -> bool:
+    """True iff any power already owns ≥ `threshold` supply centres."""
+    return any(len(p.centers) >= threshold for p in game.powers.values())
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -143,9 +147,31 @@ def parse_arguments():
         type=_str2bool,
         nargs="?",
         const=True,
-        default=False,
+        default=True,
         help=(
             "When true (1 / true / yes) the engine switches to simpler prompts which low-midrange models handle better."
+        ),
+    )
+    parser.add_argument(
+        "--generate_phase_summaries",
+        type=_str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help=(
+            "When true (1 / true / yes / default) generates narrative phase summaries. "
+            "Set to false (0 / false / no) to skip phase summary generation."
+        ),
+    )
+    parser.add_argument(
+        "--use_unformatted_prompts",
+        type=_str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help=(
+            "When true (1 / true / yes / default) uses two-step approach: unformatted prompts + Gemini Flash formatting. "
+            "Set to false (0 / false / no) to use original single-step formatted prompts."
         ),
     )
 
@@ -156,16 +182,33 @@ async def main():
     args = parse_arguments()
     start_whole = time.time()
 
-    # honour --simple_prompts before anything else needs it
     if args.simple_prompts:
-        os.environ["SIMPLE_PROMPTS"] = "1"                   # read by prompt_constructor
+        config.SIMPLE_PROMPTS = True
         if args.prompts_dir is None:
             pkg_root = os.path.join(os.path.dirname(__file__), "ai_diplomacy")
             args.prompts_dir = os.path.join(pkg_root, "prompts_simple")
 
-    if args.prompts_dir and not os.path.isdir(args.prompts_dir):
-        print(f"ERROR: Prompts directory not found: {args.prompts_dir}", file=sys.stderr)
+    # Prompt-dir validation & mapping
+    try:
+        args.prompts_dir_map = parse_prompts_dir_arg(args.prompts_dir)
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
+
+    # Handle phase summaries flag - import narrative module only if enabled
+    if args.generate_phase_summaries:
+        import ai_diplomacy.narrative
+        logger.info("Phase summary generation enabled")
+    else:
+        logger.info("Phase summary generation disabled")
+
+    # Handle unformatted prompts flag
+    if args.use_unformatted_prompts:
+        config.USE_UNFORMATTED_PROMPTS = True
+        logger.info("Using two-step approach: unformatted prompts + Gemini Flash formatting")
+    else:
+        config.USE_UNFORMATTED_PROMPTS = False
+        logger.info("Using original single-step formatted prompts")
 
     # --- 1. Determine Run Directory and Mode (New vs. Resume) ---
     run_dir = args.run_dir
@@ -226,19 +269,9 @@ async def main():
 
     if is_resuming:
         try:
-            # When resuming, we load the state and also the config from the last saved phase.
-            game, agents, game_history, loaded_run_config = load_game_state(run_dir, game_file_name, run_config, args.resume_from_phase)
-            
-            if loaded_run_config:
-                # Use the saved config, but allow current CLI args to override control-flow parameters
-                run_config = loaded_run_config
-                run_config.run_dir = args.run_dir
-                run_config.critical_state_analysis_dir = args.critical_state_analysis_dir
-                run_config.resume_from_phase = args.resume_from_phase
-                run_config.end_at_phase = args.end_at_phase
-                # If prompts_dir is specified now, it overrides the saved one.
-                if args.prompts_dir is not None:
-                    run_config.prompts_dir = args.prompts_dir
+            # When resuming, we always use the provided params (they will override the params used in the saved state)
+            game, agents, game_history, _ = load_game_state(run_dir, game_file_name, run_config, args.resume_from_phase)
+
             logger.info(f"Successfully resumed game from phase: {game.get_current_phase()}.")
         except (FileNotFoundError, ValueError) as e:
             logger.error(f"Could not resume game: {e}. Starting a new game instead.")
@@ -250,6 +283,13 @@ async def main():
         if not hasattr(game, "phase_summaries"):
             game.phase_summaries = {}
         agents = await initialize_new_game(run_config, game, game_history, llm_log_file_path)
+
+    if _detect_victory(game):
+        game.is_game_done = True          # short-circuit the main loop
+        logger.info(
+            "Game already complete on load – a power has ≥18 centres "
+            f"(current phase {game.get_current_phase()})."
+        )
 
     # --- 4. Main Game Loop ---
     while not game.is_game_done:
@@ -378,8 +418,10 @@ async def main():
         # Diary Consolidation
         if current_short_phase.startswith("S") and current_short_phase.endswith("M"):
             consolidation_tasks = [
-                run_diary_consolidation(agent, game, llm_log_file_path, prompts_dir=run_config.prompts_dir)
-                for agent in agents.values() if not game.powers[agent.power_name].is_eliminated()
+                run_diary_consolidation(agent, game, llm_log_file_path,
+                                        prompts_dir=agent.prompts_dir)
+                for agent in agents.values()
+                if not game.powers[agent.power_name].is_eliminated()
             ]
             if consolidation_tasks:
                 await asyncio.gather(*consolidation_tasks, return_exceptions=True)
@@ -404,9 +446,14 @@ async def main():
     # Save final overview stats
     overview_file_path = os.path.join(run_dir, "overview.jsonl")
     with open(overview_file_path, "w") as overview_file:
+        # ---- make Namespace JSON-safe ----------------------------------
+        cfg = vars(run_config).copy()
+        if "prompts_dir_map" in cfg and isinstance(cfg["prompts_dir_map"], dict):
+            cfg["prompts_dir_map"] = {p: str(path) for p, path in cfg["prompts_dir_map"].items()}
+        # ----------------------------------------------------------------
         overview_file.write(json.dumps(model_error_stats) + "\n")
         overview_file.write(json.dumps(getattr(game, 'power_model_map', {})) + "\n")
-        overview_file.write(json.dumps(vars(run_config)) + "\n")
+        overview_file.write(json.dumps(cfg) + "\n")
 
     logger.info("Done.")
 

@@ -196,6 +196,28 @@ def _add_lm_game_flags(p: argparse.ArgumentParser) -> None:
             "which low-midrange models handle better."
         ),
     )
+    p.add_argument(
+        "--generate_phase_summaries",
+        type=_str2bool,
+        nargs="?",
+        const=True,
+        default=True,
+        help=(
+            "When true (1 / true / yes / default) generates narrative phase summaries. "
+            "Set to false (0 / false / no) to skip phase summary generation."
+        ),
+    )
+    p.add_argument(
+        "--use_unformatted_prompts",
+        type=_str2bool,
+        nargs="?",
+        const=True,
+        default=True,
+        help=(
+            "When true (1 / true / yes / default) uses two-step approach: unformatted prompts + Gemini Flash formatting. "
+            "Set to false (0 / false / no) to use original single-step formatted prompts."
+        ),
+    )
 
 
 # ────────────────────────────────────────────────────────────────────────────
