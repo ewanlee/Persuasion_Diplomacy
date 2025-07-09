@@ -635,7 +635,11 @@ class StatisticalGameAnalyzer:
             military_units_per_phase.append(military_units)
             
             # Get relationship data for sentiment calculations
-            agent_relationships = phase.get('agent_relationships', {})
+            if 'state_agents' in phase:
+                sa = phase['state_agents']
+                agent_relationships = {p: sa[p]['relationships'] for p in sa if 'relationships' in sa[p]}
+            else:
+                agent_relationships = phase.get('relationships', {})
             if power in agent_relationships:
                 power_relationships = agent_relationships[power]
                 
@@ -824,7 +828,14 @@ class StatisticalGameAnalyzer:
     
     def _get_relationships_for_phase(self, power: str, phase: str, phase_data: dict) -> dict:
         """Get relationships for a power in a specific phase."""
-        agent_relationships = phase_data.get('agent_relationships', {})
+        if (
+            'state_agents' in phase_data and
+            power in phase_data['state_agents'] and
+            'relationships' in phase_data['state_agents'][power]
+        ):
+            agent_relationships = {power: phase_data['state_agents'][power]['relationships']}
+        else:
+            agent_relationships = phase_data.get('relationships', {})
         return agent_relationships.get(power, {})
     
     def _get_previous_phase_data(self, current_phase: str, game_data: dict) -> Optional[dict]:
@@ -862,7 +873,11 @@ class StatisticalGameAnalyzer:
             'sentiment_change_from_prev': 0.0
         }
         
-        agent_relationships = phase_data.get('agent_relationships', {})
+        if 'state_agents' in phase_data:
+            sa = phase_data['state_agents']
+            agent_relationships = {p: sa[p]['relationships'] for p in sa if 'relationships' in sa[p]}
+        else:
+            agent_relationships = phase_data.get('relationships', {})
         if not agent_relationships:
             return metrics
             
