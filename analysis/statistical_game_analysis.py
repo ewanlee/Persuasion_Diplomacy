@@ -23,6 +23,7 @@ Version: 2.0 (Hard Mode with complete validation)
 import os
 import json
 import csv
+import sys
 import argparse
 from pathlib import Path
 from collections import defaultdict, Counter
@@ -41,6 +42,8 @@ except ImportError:
         raise ImportError(
             "models.PowerEnum not found via absolute or relative import. "
         ) from exc
+
+csv.field_size_limit(sys.maxsize)
 
 class StatisticalGameAnalyzer:
     """Production-ready analyzer for AI Diplomacy game statistics.
@@ -363,6 +366,8 @@ class StatisticalGameAnalyzer:
                 
                 # Categorize by relationship
                 recipient = msg.get('recipient_power')
+                if recipient is None:
+                    continue
                 try:
                     normalized_recipient = PowerEnum(recipient).value
                 except ValueError:
@@ -696,6 +701,8 @@ class StatisticalGameAnalyzer:
                             
                             # Categorize by relationship
                             recipient = msg.get('recipient_power')
+                            if recipient is None:
+                                continue
                             # This will coerce some known aliases to match the 7 acceptable names (see models.py)
                             normalized_recipient = PowerEnum(recipient)
                             
