@@ -220,7 +220,17 @@ def _plot_relationships_per_game(
     jitter_step = 0.04                          # vertical gap between stacked points
 
     for game_id, game_df in all_phase.groupby("game_id", sort=False):
-        # dense phase ordering (0 … n-1)
+        # ── make sure rel_dict exists ───────────────────────────────
+        if "rel_dict" not in game_df.columns:
+            game_df = game_df.copy()
+            game_df["rel_dict"] = game_df["relationships"].apply(_parse_relationships)
+
+        # ── NEW: discard rows with no relationship info ────────────
+        game_df = game_df[game_df["rel_dict"].apply(bool)]
+        if game_df.empty:               # nothing left to plot
+            continue
+
+        # ── dense phase ordering (0 … n-1) on the surviving phases ─
         phase_labels = sorted(game_df["game_phase"].unique(), key=_phase_sort_key)
         phase_to_x   = {ph: idx for idx, ph in enumerate(phase_labels)}
         fig_w = max(8, len(phase_labels) * 0.1 + 4)
@@ -335,7 +345,14 @@ def _plot_relationships_per_game(
             plt.xticks(list(phase_to_x.values()), phase_labels, rotation=90, fontsize=8)
             margin = 0.1
             plt.ylim(y_min - margin, y_max + margin)
-            plt.ylabel("Relationship value (−2 … +2)")
+
+            # ── custom y-tick labels ────────────────────────────────────
+            plt.yticks(
+                [-2, -1, 0, 1, 2],
+                ["Enemy", "Unfriendly", "Neutral", "Friendly", "Ally"],
+            )
+
+            plt.ylabel("Relationship value")
             plt.xlabel("Game phase")
             plt.title(f"{focal} Relationships – {run_label}")
             plt.legend(ncol=3, fontsize=8)
@@ -343,7 +360,6 @@ def _plot_relationships_per_game(
 
             plt.savefig(plot_dir / f"{focal}_relationships.png", dpi=140)
             plt.close()
-
 
 
 
