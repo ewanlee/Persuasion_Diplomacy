@@ -307,6 +307,12 @@ class StatisticalGameAnalyzer:
         # Always include game state features for context
         game_state_features = self._extract_game_state_features(power, phase, phase_data, game_data)
         features.update(game_state_features)
+
+        # Relationship snapshot column (e.g. "AUSTRIA:-1|FRANCE:2")
+        relationships_for_phase = self._get_relationships_for_phase(power, phase, phase_data)
+        features['relationships'] = '|'.join(
+            f"{p}:{self.relationship_values.get(r, 0)}" for p, r in relationships_for_phase.items()
+        )
         
         return features
     
@@ -478,7 +484,8 @@ class StatisticalGameAnalyzer:
             'military_units_count': 0,
             'territories_gained_vs_prev_phase': 0,
             'supply_centers_gained_vs_prev_phase': 0,
-            'military_units_gained_vs_prev_phase': 0
+            'military_units_gained_vs_prev_phase': 0,
+            'relationships': ''
         }
         
         # Get current state
@@ -1057,7 +1064,8 @@ class StatisticalGameAnalyzer:
             'military_units_count',
             'territories_gained_vs_prev_phase',
             'supply_centers_gained_vs_prev_phase',
-            'military_units_gained_vs_prev_phase'
+            'military_units_gained_vs_prev_phase',
+            'relationships'
         ]
         
         # Ensure all actual fields are included (in case we missed any)
