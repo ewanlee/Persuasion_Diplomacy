@@ -943,9 +943,12 @@ class OpenAIResponsesClient(BaseModelClient):
     This client makes direct HTTP requests to the v1/responses endpoint.
     """
 
-    def __init__(self, model_name: str, prompts_dir: Optional[str] = None):
+    def __init__(self, model_name: str, prompts_dir: Optional[str] = None, api_key: Optional[str] = None):
         super().__init__(model_name, prompts_dir=prompts_dir)
-        self.api_key = os.environ.get("OPENAI_API_KEY")
+        if api_key:
+            self.api_key = api_key
+        else:
+            self.api_key = os.environ.get("OPENAI_API_KEY")
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required")
         self.base_url = "https://api.openai.com/v1/responses"
@@ -966,8 +969,8 @@ class OpenAIResponsesClient(BaseModelClient):
             payload = {
                 "model": self.model_name,
                 "input": full_prompt,
-                "temperature": temperature,
-                "max_tokens": self.max_tokens,
+                #"temperature": temperature,
+                #"max_tokens": self.max_tokens,
             }
 
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"}
@@ -1036,7 +1039,7 @@ class OpenRouterClient(BaseModelClient):
 
         logger.debug(f"[{self.model_name}] Initialized OpenRouter client")
 
-    async def generate_response(self, prompt: str, temperature: float = 0.0, inject_random_seed: bool = True) -> str:
+    async def generate_response(self, prompt: str, temperature: float = 0.5, inject_random_seed: bool = True) -> str:
         """Generate a response using OpenRouter with robust error handling."""
         try:
             # Append the call to action to the user's prompt

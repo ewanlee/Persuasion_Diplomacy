@@ -377,7 +377,7 @@ async def main():
             # what we record for prompt/history purposes
             submitted_orders_this_phase[p_name] = valid + invalid
 
-            # optional: diary entry only for the orders we tried to submit
+            # diary entry only for the orders we tried to submit
             if valid or invalid:
                 await agents[p_name].generate_order_diary_entry(
                     game, valid + invalid, llm_log_file_path
@@ -433,13 +433,14 @@ async def main():
                 await asyncio.gather(*consolidation_tasks, return_exceptions=True)
 
         # Agent State Updates
-        current_board_state = game.get_state()
-        state_update_tasks = [
-            agent.analyze_phase_and_update_state(game, current_board_state, phase_summary, game_history, llm_log_file_path)
-            for agent in agents.values() if not game.powers[agent.power_name].is_eliminated()
-        ]
-        if state_update_tasks:
-            await asyncio.gather(*state_update_tasks, return_exceptions=True)
+        if current_short_phase.endswith("M"):
+            current_board_state = game.get_state()
+            state_update_tasks = [
+                agent.analyze_phase_and_update_state(game, current_board_state, phase_summary, game_history, llm_log_file_path)
+                for agent in agents.values() if not game.powers[agent.power_name].is_eliminated()
+            ]
+            if state_update_tasks:
+                await asyncio.gather(*state_update_tasks, return_exceptions=True)
 
         # --- 4f. Save State At End of Phase ---
         save_game_state(game, agents, game_history, game_file_path, run_config, completed_phase)
