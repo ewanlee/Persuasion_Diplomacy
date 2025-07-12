@@ -969,8 +969,8 @@ class OpenAIResponsesClient(BaseModelClient):
             payload = {
                 "model": self.model_name,
                 "input": full_prompt,
-                #"temperature": temperature,
-                #"max_tokens": self.max_tokens,
+                "temperature": temperature,
+                "max_tokens": self.max_tokens,
             }
 
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"}
