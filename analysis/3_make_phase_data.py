@@ -8,13 +8,13 @@ Build on existing orders and conversation data, as well as logs, to make detaile
 'influence', (list of territories under influence)
 'units', (list of units in [A|F] [province] format)
 'orders', (list of orders given)
-'relationship_to_AUSTRIA' (as rated Friendly/Neutral/Enemy etc)
-'relationship_to_ENGLAND' (as rated Friendly/Neutral/Enemy etc)
-'relationship_to_FRANCE' (as rated Friendly/Neutral/Enemy etc)
-'relationship_to_GERMANY' (as rated Friendly/Neutral/Enemy etc)
-'relationship_to_ITALY' (as rated Friendly/Neutral/Enemy etc)
-'relationship_to_RUSSIA' (as rated Friendly/Neutral/Enemy etc)
-'relationship_to_TURKEY' (as rated Friendly/Neutral/Enemy etc)
+'relationship_to_austria' (as rated Friendly/Neutral/Enemy etc)
+'relationship_to_england' (as rated Friendly/Neutral/Enemy etc)
+'relationship_to_france' (as rated Friendly/Neutral/Enemy etc)
+'relationship_to_germany' (as rated Friendly/Neutral/Enemy etc)
+'relationship_to_italy' (as rated Friendly/Neutral/Enemy etc)
+'relationship_to_russia' (as rated Friendly/Neutral/Enemy etc)
+'relationship_to_turkey' (as rated Friendly/Neutral/Enemy etc)
 'centers_count', (number of supply centers currently owned)
 'units_count', (number of units currently owned)
 'armies_count', (number of armies currently owned)
@@ -28,13 +28,13 @@ Build on existing orders and conversation data, as well as logs, to make detaile
 'armies_change', (number of armies gained/lost since last M phase)
 'fleet_change', (number of fleets gained/lost since last M phase)
 'influence_change', (number of territories under influence gained/lost since last M phase)
-'conversation_ENGLAND', (transcript of conversation with England if any)
-'conversation_FRANCE', (transcript of conversation with France if any)
-'conversation_GERMANY', (transcript of conversation with Germany if any)
-'conversation_ITALY', (transcript of conversation with Italy if any)
-'conversation_RUSSIA', (transcript of conversation with Russia if any)
-'conversation_TURKEY', (transcript of conversation with Turkey if any)
-'conversation_AUSTRIA', (transcript of conversation with Austria if any)
+'conversation_england', (transcript of conversation with England if any)
+'conversation_france', (transcript of conversation with France if any)
+'conversation_germany', (transcript of conversation with Germany if any)
+'conversation_italy', (transcript of conversation with Italy if any)
+'conversation_russia', (transcript of conversation with Russia if any)
+'conversation_turkey', (transcript of conversation with Turkey if any)
+'conversation_austria', (transcript of conversation with Austria if any)
 'count_build_commands', (number of build commands given)
 'count_convoy_commands', (number of convoy commands given)
 'count_disband_commands', (number of disband commands given)
@@ -53,17 +53,27 @@ Build on existing orders and conversation data, as well as logs, to make detaile
 'count_got_void', (number of void results)
 'count_got_void/disband', (number of void/disband results)
 'count_got_void/dislodged', (number of void/dislodged results)
-'moves_into_own_territory', (number of moves into own territory)
-'moves_into_another_territory', (number of moves into another territory)
-'territories_gained', (number of territories gained)
-took_territory_from', (list of countries territory was taken from, "UNOWNED" if was neutral)
-'supply_centers_gained', (number of supply centers gained)
-took_supply_centers_from', (list of countries supply centers were taken from)
-countries_supported', (list of countries supported)
-countries_attacked', (list of countries attacked)
-count_supported_self', (number of times supported self)
-count_supported_other', (number of times supported another power)
-count_got_supported_by_other', (number of times got supported by another power)
+etc (a lot of possible combinations here)
+'count_moves_into_own_territory', (number of moves into own territory)
+'count_moves_into_another_territory', (number of moves into another territory)
+'count_territories_gained', (number of territories gained)
+'list_took_territory_from', (list of countries territory was taken from, "UNOWNED" if was neutral)
+'count_supply_centers_gained', (number of supply centers gained)
+'list_took_supply_centers_from', (list of countries supply centers were taken from)
+'list_countries_supported', (list of countries supported)
+'list_countries_attacked', (list of countries attacked)
+'count_supported_self', (number of times supported self)
+'count_supported_other', (number of times supported another power)
+'count_was_supported_by_other', (number of times got supported by another power)
+'list_was_supported_by', (list of countries that supported this power)
+'raw_order_generation_response', (raw output from order query)
+'automated_order_extraction_status', (success/error message for order extraction)
+'order_reasoning', (free-text reasoning extracted from response)
+'unformatted_order_response', (raw orders partially extracted from response)
+'order_reasoning_length', (length of reasoning in generating orders)
+'invalid_order_count', (number of invalid orders given)
+'no_moves_extracted_flag', (flag for if no moves were extracted)
+'valid_order_count', (number of valid orders, calculated as unit_count - invalid_order_count, unless no valid orders were extracted )
 """
 
 import pandas as pd
@@ -156,12 +166,29 @@ def make_phase_data(game_data_folder : Path, analysis_folder : Path, selected_ga
     orders_data["defendant_country"] = np.where(orders_data["destination_affiliation"] != orders_data["country"], 
                                                 orders_data["destination_affiliation"], np.nan)
 
-
+    
+    # orders reasoning 
+    order_reasoning_by_phase = orders_data[['phase', 'country', 'raw_response',
+       'automated_order_extraction_status', 'reasoning', 'unformatted_orders',
+       'reasoning_length']].drop_duplicates().rename(columns={
+           "country": "power",
+           "raw_response": "raw_order_generation_response",
+           "reasoning": "order_reasoning",
+           "unformatted_orders": "unformatted_order_response",
+           "reasoning_length": "order_reasoning_length",
+       })
+    order_reasoning_by_phase["invalid_order_count"] = pd.to_numeric(order_reasoning_by_phase["automated_order_extraction_status"].str.extract(r"Failure: Invalid LLM Moves (\d+)", 
+                                                                                                                                              expand=False), errors="coerce").fillna(0)
+    order_reasoning_by_phase["no_moves_extracted_flag"] = order_reasoning_by_phase["automated_order_extraction_status"].str.contains("No moves extracted")
+    
+    
+    
     # phase level summaries for orders
     commands_given = orders_data.groupby(["country", "phase"])["command"].value_counts()
     immediate_outcomes = orders_data.groupby(["country", "phase"])["immediate_result"].value_counts()
     # units in own territory
     orders_data["moving_in_own_territory"] = orders_data["destination_affiliation"]==orders_data["country"]
+    orders_data["moving_into_anothers_territory"] = orders_data["destination_affiliation"]!=orders_data["country"]
 
     moves_in_own_territory = orders_data.groupby(["country", "phase"])["moving_in_own_territory"].sum()
     moves_into_other_territory = orders_data.groupby(["country", "phase"])["moving_into_anothers_territory"].sum()
@@ -169,31 +196,60 @@ def make_phase_data(game_data_folder : Path, analysis_folder : Path, selected_ga
     gained_territory = orders_data.groupby(["country", "phase"])["took_location"].sum()
     took_territory_from = orders_data.groupby(["country", "phase"])["move_took_location_from"].apply(lambda x: x.dropna().tolist())
 
+    count_lost_territory = orders_data.groupby(["move_took_location_from", "phase"]).size()
+    lost_territory_to = orders_data.groupby(["move_took_location_from", "phase"])["country"].apply(lambda x: x.dropna().tolist())
+    lost_territory_to.index.names = ["country", "phase"]
+
     supply_centers_gained = orders_data.groupby(["country", "phase"])["move_took_sc"].sum()
     supply_centers_taken_from = orders_data.groupby(["country", "phase"])["move_took_sc_from"].apply(lambda x: x.dropna().tolist())
 
+    supply_centers_lost = orders_data.groupby(["move_took_sc_from", "phase"]).size()
+
+    supply_centers_taken_by = orders_data.groupby(["move_took_sc_from", "phase"])["country"].apply(lambda x: x.dropna().tolist())
+    supply_centers_taken_by.index.names = ["country", "phase"]
+
     supported_self = orders_data.groupby(["country", "phase"])["supporting_self"].sum()
     supported_other = orders_data.groupby(["country", "phase"])["supporting_an_ally"].sum()
-    count_got_supported = orders_data.groupby(["country", "phase"])["supported_by_other"].sum()
+    was_supported_by_self = orders_data.groupby(["country", "phase"])["supported_by_self"].sum()
+    was_supported_by_other = orders_data.groupby(["country", "phase"])["supported_by_other"].sum()
 
     countries_supported = orders_data.groupby(["country", "phase"])["recipient_unit_owner"].apply(lambda x: x.dropna().tolist())
+    got_supported_by = orders_data.groupby(["country", "phase"])["supported_by"].apply(lambda x: x.dropna().tolist())
     countries_attacked = orders_data.groupby(["country", "phase"])["defendant_country"].apply(lambda x: x.dropna().tolist())
+    # lost a supply center
+
+
+    # territories held, territories moved to? 
 
     orders_summary = pd.concat([commands_given.unstack().add_prefix("count_").add_suffix("_commands"), 
                                 immediate_outcomes.unstack().add_prefix("count_got_"),
-                                moves_in_own_territory.rename("moves_into_own_territory"), 
-                                moves_into_other_territory.rename("moves_into_another_territory"), 
-                                gained_territory.rename("territories_gained"),
-                                took_territory_from.rename("took_territory_from"),
-                                supply_centers_gained.rename("supply_centers_gained"), 
-                                supply_centers_taken_from.rename("took_supply_centers_from"),
-                                countries_supported.rename("countries_supported"),
-                                countries_attacked.rename("countries_attacked"),
+                                moves_in_own_territory.rename("count_moves_into_own_territory"), 
+                                moves_into_other_territory.rename("count_moves_into_another_territory"), 
+                                
+                                gained_territory.rename("count_territories_gained"),
+                                took_territory_from.rename("list_took_territory_from"),
+                                count_lost_territory.rename("count_territories_lost"),
+                                lost_territory_to.rename("list_lost_territory_to"),
+                                
+                                supply_centers_gained.rename("count_supply_centers_gained"), 
+                                supply_centers_taken_from.rename("list_took_supply_centers_from"),
+                                
+                                supply_centers_lost.rename("count_supply_centers_lost"),
+                                supply_centers_taken_by.rename("list_lost_supply_centers_to"),
+                                
+                                countries_supported.rename("list_countries_supported"),
+                                countries_attacked.rename("list_countries_attacked"),
+                                
                                 supported_self.rename("count_supported_self"),
                                 supported_other.rename("count_supported_other"),
-                                count_got_supported.rename("count_got_supported_by_other"),
-                                ], axis=1).fillna(0)
+                                got_supported_by.rename("list_was_supported_by"),
+                                was_supported_by_other.rename("count_was_supported_by_other"),
+                                was_supported_by_self.rename("count_was_supported_by_self"),
+                                ], axis=1)
+
     orders_summary.columns = orders_summary.columns.str.lower() 
+    orders_summary.loc[:, orders_summary.columns.str.contains("count")] = orders_summary.loc[:, orders_summary.columns.str.contains("count")].fillna(0)
+    orders_summary.loc[:, orders_summary.columns.str.contains("list")] = orders_summary.loc[:, orders_summary.columns.str.contains("list")].map(lambda x: ", ".join(x) if isinstance(x, list) else "").replace("", np.nan)
 
     state_list = {}
     for phase in lmvs_data["phases"]:
@@ -202,7 +258,7 @@ def make_phase_data(game_data_folder : Path, analysis_folder : Path, selected_ga
             state_list[phase["name"]].append(pd.DataFrame(pd.Series(phase["state"][var])).rename(columns={0:var}))
         state_list[phase["name"]].append(orders_over_time.loc[phase["name"]].rename("orders"))
         state_list[phase["name"]] = pd.concat(state_list[phase["name"]], axis=1)
-        
+            
     state_list = pd.concat(state_list, axis=0)
     state_list.index.names = ["phase", "agent"]
     full_phase_data = pd.merge(state_list, 
@@ -229,6 +285,14 @@ def make_phase_data(game_data_folder : Path, analysis_folder : Path, selected_ga
     full_phase_data = pd.merge(full_phase_data, orders_summary, how="left", left_on=["power", "phase"],
                                right_index=True)
     full_phase_data["model"] = full_phase_data["power"].map(country_to_model)
+    
+    full_phase_data = pd.merge(full_phase_data, order_reasoning_by_phase, how="left", 
+                               on=["phase", "power"])
+    full_phase_data["valid_order_count"] = full_phase_data["units_count"] - full_phase_data["invalid_order_count"]
+    full_phase_data["valid_order_count"] = np.where(full_phase_data["no_moves_extracted_flag"], 0, full_phase_data["valid_order_count"])
+    
+    # for column naming consistency
+    full_phase_data.columns = full_phase_data.columns.str.replace(" ", "_").str.lower()
     return full_phase_data
 
 if __name__ == "__main__":
