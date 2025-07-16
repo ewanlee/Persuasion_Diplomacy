@@ -84,39 +84,20 @@ import copy
 import re 
 import argparse
 from pathlib import Path
-from analysis_constants import COUNTRIES, supply_centers, coastal_scs, place_identifier, unit_identifier, unit_move, possible_commands
+from analysis.analysis_helpers import process_standard_game_inputs, COUNTRIES
 from tqdm import tqdm
 
-def make_phase_data(game_data_folder : Path, analysis_folder : Path, selected_game : str) -> pd.DataFrame:
-    path_to_folder = game_data_folder / selected_game
-
-    # game overview
-    overview = pd.read_json(path_to_folder / "overview.jsonl", lines=True)
-    assert overview is not None, f"Overview file not found at {path_to_folder}/overview.jsonl"
+def make_phase_data(overview : pd.DataFrame, 
+                    lmvs_data : pd.DataFrame, 
+                    conversations_data : pd.DataFrame, 
+                    orders_data : pd.DataFrame) -> pd.DataFrame:
     country_to_model = overview.loc[1, COUNTRIES]
-
-    # get preprocessed orders data 
-    orders_path = analysis_folder / "orders_data" / f"{selected_game}_orders_data.csv"
-    assert os.path.exists(orders_path), f"Orders data not found at {orders_path}"
-    orders_data = pd.read_csv(orders_path)
-
-    # get lmvs log
-    path_to_file = path_to_folder / "lmvsgame.json"
-    assert os.path.exists(path_to_file), f"LMVS file not found at {path_to_file}"
-    # Use the standard `json` library to load the file into a Python object
-    with open(path_to_file, 'r') as f:
-        lmvs_data = json.load(f)
-
-    # conversations
-    convo_path = Path(analysis_folder) / "conversations_data" / f"{selected_game}_conversations_data.csv"
-    assert os.path.exists(convo_path), f"Conversations data not found at {convo_path}"
-    all_conversations = pd.read_csv(convo_path)
 
     longform_conversations_complete = []
     for c in COUNTRIES: 
-        subset_party_1 = all_conversations[(all_conversations["party_1"]==c)][["party_1", "party_2", 
+        subset_party_1 = conversations_data[(conversations_data["party_1"]==c)][["party_1", "party_2", 
                                             "phase", "transcript"]].rename(columns={"party_1": "agent", "party_2": "other_country"})
-        subset_party_2 = all_conversations[(all_conversations["party_2"]==c)][["party_2", "party_1", 
+        subset_party_2 = conversations_data[(conversations_data["party_2"]==c)][["party_2", "party_1", 
                                             "phase", "transcript"]].rename(columns={"party_2": "agent", "party_1": "other_country"})
         my_convos = pd.concat([subset_party_1, subset_party_2]).set_index(["agent", "phase", "other_country"])["transcript"].unstack().add_prefix("conversation_")
         
@@ -340,9 +321,12 @@ if __name__ == "__main__":
             continue
         
         #try:
-        data = make_phase_data(current_game_data_folder, Path(analysis_folder), game_name)
+        game_data = process_standard_game_inputs(game_data_folder=game_path, selected_game=game_name)
+        orders_data = pd.read_csv(analysis_folder / "orders_data" / f"{game_name}_orders_data.csv")
+        conversations_data = pd.read_csv(analysis_folder / "conversations_data" / f"{game_name}_conversations_data.csv")
+        data = make_phase_data(overview=game_data["overview"], 
+                               lmvs_data=game_data["lmvs_data"], 
+                               conversations_data=conversations_data, 
+                               orders_data=orders_data)
         output_path = output_folder / f"{game_name}_phase_data.csv"
         data.to_csv(output_path, index=False)
-        #except Exception as e:
-            #print(f"An unexpected error occurred while processing {game_name}: {e}")
-        #print(f"Skipping {game_name}.")

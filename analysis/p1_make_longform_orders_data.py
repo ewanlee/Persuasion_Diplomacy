@@ -54,33 +54,23 @@ Return / save
 import pandas as pd
 import numpy as np
 import os 
-import json 
 import copy
 import re 
 import argparse
 import warnings
 from pathlib import Path
-from analysis_constants import COUNTRIES, supply_centers, coastal_scs, place_identifier, unit_identifier, unit_move, possible_commands
+from analysis.analysis_helpers import process_standard_game_inputs, COUNTRIES, supply_centers, coastal_scs, place_identifier, unit_identifier, unit_move, possible_commands
 from tqdm import tqdm
 
 # Suppress pandas warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='pandas.core.strings')
 warnings.filterwarnings('ignore', category=pd.errors.SettingWithCopyWarning)
 
-def make_longform_order_data(game_data_folder : Path, selected_game : str) -> pd.DataFrame:
-    path_to_folder = game_data_folder / selected_game
-
-    assert os.path.exists(path_to_folder / "overview.jsonl"), f"Overview file not found in {path_to_folder}"
-    overview = pd.read_json(path_to_folder / "overview.jsonl", lines=True)
-    country_to_model = overview.loc[1, COUNTRIES] # map countries to models
-
-    # get all turn actions from lmvs
-    assert os.path.exists(path_to_folder / "lmvsgame.json"), f"LMVS file not found in {path_to_folder}"
-    path_to_file = path_to_folder / "lmvsgame.json"
-
-    # Use the standard `json` library to load the file into a Python object
-    with open(path_to_file, 'r') as f:
-        lmvs_data = json.load(f)
+def make_longform_order_data(overview : pd.DataFrame, lmvs_data : pd.DataFrame, all_responses : pd.DataFrame) -> pd.DataFrame:
+    try:
+        country_to_model = overview.loc[1, COUNTRIES] # map countries to models
+    except:
+        country_to_model = {country: "not specified in overview.jsonl" for country in COUNTRIES}    
     ################## PART 1 ##################
     # build `turn_actions` dataframe
 
@@ -235,22 +225,25 @@ def make_longform_order_data(game_data_folder : Path, selected_game : str) -> pd
     for phase in lmvs_data["phases"]:
         agent_relationship_matrix_over_time[phase["name"]] = pd.DataFrame(phase.get("agent_relationships", {}))
     longform_relationships = pd.concat(agent_relationship_matrix_over_time).reset_index(names=["phase", "agent"])
-    longform_relationships.columns = longform_relationships.columns.str.lower()
-    longform_relationships[['austria', 'england', 'france', 'germany', 'italy',
-        'russia', 'turkey']] = longform_relationships[['austria', 'england', 'france', 'germany', 'italy',
-        'russia', 'turkey']].fillna("Self") 
-    longform_relationships = longform_relationships.add_prefix("relationship_")
-    all_orders_ever = pd.merge(all_orders_ever, longform_relationships, 
-            left_on=["phase", "country"], right_on=["relationship_phase", "relationship_agent"]).drop(columns=["relationship_phase", "relationship_agent"])
     
-    alternate_relationship_view = pd.concat(agent_relationship_matrix_over_time)
-    alternate_relationship_view.index.names = ["phase", "agent"]
-    alternate_relationship_view = alternate_relationship_view.stack().reset_index().rename(columns={"level_2":"recipient",
-            0:"status"}).set_index(["phase", "recipient", 
-            "agent"])["status"].unstack("agent").fillna("Self").add_suffix("s_relationship_rating").reset_index()
-    all_orders_ever = pd.merge(all_orders_ever, alternate_relationship_view, 
-            left_on=["phase", "country"], right_on=["phase", "recipient"]).drop(columns=["recipient"])
-
+    if longform_relationships.empty:
+        print("Warning: no relationship data found in phase data")
+    else: 
+        longform_relationships.columns = longform_relationships.columns.str.lower()
+        longform_relationships[['austria', 'england', 'france', 'germany', 'italy',
+            'russia', 'turkey']] = longform_relationships[['austria', 'england', 'france', 'germany', 'italy',
+            'russia', 'turkey']].fillna("Self") 
+        longform_relationships = longform_relationships.add_prefix("relationship_")
+        all_orders_ever = pd.merge(all_orders_ever, longform_relationships, 
+                left_on=["phase", "country"], right_on=["relationship_phase", "relationship_agent"]).drop(columns=["relationship_phase", "relationship_agent"])
+        
+        alternate_relationship_view = pd.concat(agent_relationship_matrix_over_time)
+        alternate_relationship_view.index.names = ["phase", "agent"]
+        alternate_relationship_view = alternate_relationship_view.stack().reset_index().rename(columns={"level_2":"recipient",
+                0:"status"}).set_index(["phase", "recipient", 
+                "agent"])["status"].unstack("agent").fillna("Self").add_suffix("s_relationship_rating").reset_index()
+        all_orders_ever = pd.merge(all_orders_ever, alternate_relationship_view, 
+                left_on=["phase", "country"], right_on=["phase", "recipient"]).drop(columns=["recipient"])
 
     # if action was supporting
     all_orders_ever["supporting_self"] = all_orders_ever["country"]==all_orders_ever["recipient_unit_owner"]
@@ -279,8 +272,6 @@ def make_longform_order_data(game_data_folder : Path, selected_game : str) -> pd
     all_orders_ever["unit_order_weight"] = all_orders_ever["country"].map(unit_order_weight)
 
     # Get llm order planning
-    assert os.path.exists(path_to_folder / "llm_responses.csv"), f"LLM responses file not found in {path_to_folder}"
-    all_responses = pd.read_csv(path_to_folder / "llm_responses.csv")
     order_generations = all_responses[all_responses["response_type"] == "order_generation"].copy()
     order_reasoning_details = order_generations[["power", "phase", "raw_response", "success"]].copy()
     
@@ -343,7 +334,10 @@ if __name__ == "__main__":
             continue
 
         try:
-            data = make_longform_order_data(current_game_data_folder, game_name)
+            game_source_data = process_standard_game_inputs(game_path, game_name)
+            data = make_longform_order_data(overview=game_source_data["overview"], 
+                                            lmvs_data=game_source_data["lmvs_data"], 
+                                            all_responses=game_source_data["all_responses"])
             output_path = analysis_folder / f"{game_name}_orders_data.csv"
             data.to_csv(output_path, index=False)
         except FileNotFoundError as e:

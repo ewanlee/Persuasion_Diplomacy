@@ -19,27 +19,16 @@ Resulting columns:
  ]
 """
 import pandas as pd
-import json 
 import itertools 
-import re
 import argparse
 import os
 from tqdm import tqdm
 from pathlib import Path
-from analysis_constants import COUNTRIES
+from analysis.analysis_helpers import COUNTRIES, process_standard_game_inputs
 
-def make_conversation_data(game_data_folder : Path, selected_game : str) -> pd.DataFrame:
-    # get lmvs log
-    path_to_folder = game_data_folder / selected_game
-    
-    overview = pd.read_json(path_to_folder / "overview.jsonl", lines=True)
+def make_conversation_data(overview : pd.DataFrame, lmvs_data : pd.DataFrame) -> pd.DataFrame:
     country_to_model = overview.loc[1, COUNTRIES]
 
-    path_to_file = path_to_folder / "lmvsgame.json"
-    # Use the standard `json` library to load the file into a Python object
-    with open(path_to_file, 'r') as f:
-        lmvs_data = json.load(f)
-        
     COUNTRY_COMBINATIONS = list(itertools.combinations(COUNTRIES, r=2))
     
     # relationship data
@@ -160,7 +149,10 @@ if __name__ == "__main__":
             continue
 
         try:
-            data = make_conversation_data(current_game_data_folder, game_name)
+            game_data = process_standard_game_inputs(game_data_folder=game_path, 
+                                                     selected_game=game_name)
+            data = make_conversation_data(overview=game_data["overview"], 
+                                          lmvs_data=game_data["lmvs_data"])
             output_path = analysis_folder / f"{game_name}_conversations_data.csv"
             data.to_csv(output_path, index=False)
         except Exception as e:

@@ -20,42 +20,52 @@ python analysis/make_all_analysis_data.py --game_data_folder "/path/to/Game Data
 """
 import argparse
 import os
-import subprocess
-import sys
 from pathlib import Path
+import pandas as pd
+from tqdm import tqdm
 
-def run_script(script_name, args_dict):
-    """Run a script with the provided arguments."""
-    print(f"\n=== Running {script_name} ===")
+from analysis.p1_make_longform_orders_data import make_longform_order_data
+from analysis.p2_make_convo_data import make_conversation_data   
+from analysis.p3_make_phase_data import make_phase_data
+from analysis.analysis_helpers import process_standard_game_inputs, process_game_in_zip
+
+from typing import Dict
+def process_game_data_from_folders(game_name : str, game_path : Path) -> Dict[str, pd.DataFrame]:
+    """Reads log data from folder and makes analytic data sets"""
     
-    cmd = [sys.executable, script_name]
+    game_data : dict[str, pd.DataFrame] = process_standard_game_inputs(game_data_folder=game_path, selected_game=game_name)
     
-    # Add all arguments that apply to this script
-    for arg_name, arg_value in args_dict.items():
-        if arg_value:  # Only add if value exists
-            if isinstance(arg_value, list):
-                cmd.append(f"--{arg_name}")
-                cmd.extend(arg_value)
-            else:
-                cmd.append(f"--{arg_name}")
-                cmd.append(str(arg_value))
+    orders_data : pd.DataFrame = make_longform_order_data(overview=game_data["overview"], 
+                                   lmvs_data=game_data["lmvs_data"],
+                                   all_responses=game_data["all_responses"])
     
-    print(f"Command: {' '.join(cmd)}")
+    conversations_data : pd.DataFrame = make_conversation_data(overview=game_data["overview"], lmvs_data=game_data["lmvs_data"])
     
-    result = subprocess.run(cmd, text=True)
+    phase_data : pd.DataFrame = make_phase_data(overview=game_data["overview"], 
+                           lmvs_data=game_data["lmvs_data"], 
+                           conversations_data=conversations_data, 
+                           orders_data=orders_data)
     
-    # Print output
-    if result.stdout:
-        print("\nOutput:")
-        print(result.stdout)
+    return {"orders_data": orders_data, "conversations_data": conversations_data, "phase_data": phase_data}
+
+def process_game_data_from_zip(zip_path : Path, game_name : str) -> Dict[str, pd.DataFrame]:
+    """Reads log data from zip and makes analytic data sets"""
     
-    # Check for errors
-    if result.returncode != 0:
-        print("\nERROR:")
-        print(result.stderr)
-        return False
+    game_data : dict[str, pd.DataFrame] = process_game_in_zip(zip_path=zip_path, selected_game=game_name)
     
-    return True
+    orders_data : pd.DataFrame = make_longform_order_data(overview=game_data["overview"], 
+                                   lmvs_data=game_data["lmvs_data"],
+                                   all_responses=game_data["all_responses"])
+    
+    conversations_data : pd.DataFrame = make_conversation_data(overview=game_data["overview"], lmvs_data=game_data["lmvs_data"])
+    
+    phase_data : pd.DataFrame = make_phase_data(overview=game_data["overview"], 
+                           lmvs_data=game_data["lmvs_data"], 
+                           conversations_data=conversations_data, 
+                           orders_data=orders_data)
+    
+    return {"orders_data": orders_data, "conversations_data": conversations_data, "phase_data": phase_data}
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run all three analysis scripts in sequence with the same arguments.")
@@ -86,24 +96,18 @@ if __name__ == "__main__":
     args_dict["analysis_folder"] = Path(args_dict["analysis_folder"])
     args_dict["game_data_folder"] = Path(args_dict["game_data_folder"])
     
-    # Prepare arguments for each script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    script1_path = os.path.join(script_dir, "1_make_longform_orders_data.py")
-    script2_path = os.path.join(script_dir, "2_make_convo_data.py")
-    script3_path = os.path.join(script_dir, "3_make_phase_data.py")
-    
-    # Run scripts in order
-    if not run_script(script1_path, {k: v for k, v in args_dict.items()}):
-        print("ERROR: Failed to run 1_make_longform_orders_data.py. Stopping.")
-        sys.exit(1)
+    games_to_process = args.selected_game
+    if not games_to_process:
+        games_to_process = os.listdir(args_dict["game_data_folder"])
+    for game in tqdm(games_to_process, desc="Processing games"):
+        game_path = args_dict["game_data_folder"] / game
+        if not game_path.is_dir():
+            continue
         
-    if not run_script(script2_path, {k: v for k, v in args_dict.items()}):
-        print("ERROR: Failed to run 2_make_convo_data.py. Stopping.")
-        sys.exit(1)
-        
-    if not run_script(script3_path, {k: v for k, v in args_dict.items()}):
-        print("ERROR: Failed to run 3_make_phase_data.py. Stopping.")
-        sys.exit(1)
-        
-    print("\n=== All analysis scripts completed successfully! ===")
+        try:
+            results = process_game_data_from_folders(game_name=game, game_path=args_dict["game_data_folder"])
+            for data_set, df in results.items():
+                output_path = args_dict["analysis_folder"] / data_set / f"{game}_{data_set}.csv"
+                df.to_csv(output_path, index=False)
+        except Exception as e:
+            print(f"Error processing game {game}: {e}")
