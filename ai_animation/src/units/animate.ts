@@ -9,10 +9,12 @@ import { config } from "../config"; // Assuming config is defined in a separate 
 import { PowerENUM, ProvinceENUM } from "../types/map";
 import { UnitTypeENUM } from "../types/units";
 import { sineWave, getTimeInSeconds } from "../utils/timing";
+//import { color } from "chart.js/helpers";
+//import { depth } from "three/tsl";
 
 
 function buildFancyArrow(length: number, colorDeter: string): THREE.Mesh {
-
+//Specs to change arrow size
   const tw   = 3.5;
   const headLength  = tw * 4;
   const hw   = tw * 4;
@@ -36,7 +38,36 @@ function buildFancyArrow(length: number, colorDeter: string): THREE.Mesh {
       mat = new THREE.MeshStandardMaterial({color: 0xFF0000})
   }
   const mesh= new THREE.Mesh(extrude, mat)
+  //(Potential Addition: Outline of arrow)
   return mesh;
+}
+
+function createShield() {
+
+//Shield Specs
+const BSH= 10  
+const SW= 10
+const TSH= 10
+
+
+const outL= new THREE.Shape()
+  .moveTo(0, TSH)
+  .lineTo(SW, TSH)
+  .lineTo(SW, 0)
+  .quadraticCurveTo(SW, -BSH, 0, -BSH)
+  .quadraticCurveTo(-SW, -BSH, -SW, 0)
+  .lineTo(-SW,TSH)
+  .lineTo(0, TSH)
+  .closePath();
+
+const SExtrude= new THREE.ExtrudeGeometry(outL, {depth: 5})
+
+const SMat= new THREE.MeshStandardMaterial({color: 0x00FF00})
+
+const SMesh= new THREE.Mesh(SExtrude, SMat )
+
+return SMesh 
+
 }
 
 //create an arrow from the unit’s current pos toward the target
@@ -151,7 +182,7 @@ function createMoveAnimation(unitMesh: THREE.Group, orderDestination: ProvinceEN
   unitMesh.userData.moveArrow = arrowMesh;
 //Value beside x:1 controls the speed of the growth
 const ArrowGrow = new Tween(arrowMesh.scale)
-  .to({ x: 1 }, 300)                    
+  .to({ x: 1 }, 1000)                    
   .easing(Easing.Quadratic.Out)
   .onComplete(() => {    
     const anim = new Tween(unitMesh.position)
@@ -213,11 +244,15 @@ function createBounceAnimation(unitMesh: THREE.Group, attemptedDestination: Prov
     );
   arrowMesh.setRotationFromQuaternion(q);
 
-  //arrowMesh.scale.set(0, 1, 1);
+  arrowMesh.scale.set(0, 1, 1);
 
   gameState.scene.add(arrowMesh);
   unitMesh.userData.moveArrow = arrowMesh;
-
+  const growBounce= new Tween (arrowMesh.scale)
+  //Number beside x:1 controls speed in ms
+  .to({ x: 1 }, 1000)                   
+  .easing(Easing.Quadratic.Out)
+  .onComplete(() => {
   const bounceOut = new Tween(unitMesh.position)
     .to({ x: end.x, y: 10, z: end.z }, config.effectiveAnimationDuration / 2)
     .easing(Easing.Quadratic.Out)
@@ -233,10 +268,42 @@ function createBounceAnimation(unitMesh: THREE.Group, attemptedDestination: Prov
 
   bounceOut.start();
 
-  gameState.unitAnimations.push(bounceOut);
-  return bounceOut;
+  gameState.unitAnimations.push(bounceOut);})
+  growBounce.start()
+  gameState.unitAnimations.push(growBounce)
+  return growBounce;
 }
 
+
+function createHoldAnimation(unitMesh: THREE.Group): Tween {
+
+const newshield= createShield()
+
+const worldPos = new THREE.Vector3();
+unitMesh.getWorldPosition(worldPos);
+newshield.position.set(worldPos.x, -20, worldPos.z+8);
+  gameState.scene.add(newshield);
+  unitMesh.userData.newshield = newshield;
+
+unitMesh.userData.isAnimating = true
+const RiserS= new Tween (newshield.position)
+  .to({ x: worldPos.x, y: 20, z: worldPos.z+8}, 2000)
+    .easing(Easing.Quadratic.Out)
+    .onComplete(() => {
+      // parent under the unit so it moves with them
+      gameState.scene.remove(newshield);
+      delete unitMesh.userData.newshield;
+      unitMesh.userData.isAnimating = false
+    })
+    .start();
+
+  // 5) make sure it's updated each frame
+  gameState.unitAnimations.push(RiserS);
+
+  
+
+  return RiserS;
+}
 
 
 /**
@@ -315,6 +382,7 @@ export function createAnimationsForNextPhase() {
           
         case "hold":
           //TODO: Hold animation, maybe a sheild or something?
+          createHoldAnimation(gameState.unitMeshes[unitIndex])
           break;
 
         case "convoy":
