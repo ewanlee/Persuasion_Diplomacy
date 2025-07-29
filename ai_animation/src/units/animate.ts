@@ -70,50 +70,6 @@ return SMesh
 
 }
 
-//create an arrow from the unit’s current pos toward the target
-function createMoveArrow(scene: THREE.Scene, unitMesh: THREE.Group, destination: ProvinceENUM): THREE.ArrowHelper {
-  const startPos = unitMesh.position.clone();
-  const endPos = getProvincePosition(destination)!;
-
-  // compute direction & length
-  const dir = new THREE.Vector3()
-    .subVectors(endPos, startPos)
-  const length = startPos.distanceTo(endPos) - 2; //subtracted a bit so the arrow tip doesn't overlap the unit
-
-  const color = 0x00FF00
-
-  const arrow = new THREE.ArrowHelper(dir, startPos, length, color, 1, 0.5);
-  scene.add(arrow);
-
-  unitMesh.userData.moveArrow = arrow;
-  return arrow;
-}
-
-
-//Different color arrow for bounce to differentate moves (red=bounce, green=regular move)
-function createBounceArrow(
-  scene: THREE.Scene,
-  unitMesh: THREE.Group,
-  destination: ProvinceENUM)
-  : THREE.ArrowHelper {
-    const startPos = unitMesh.position.clone();
-    const endPos= getProvincePosition(destination)!;
-
-    // compute direction & length
-  const dir = new THREE.Vector3()
-  .subVectors(endPos, startPos)
-  const length = startPos.distanceTo(endPos) - 2; //subtracted a bit so arrow tip doesn't overlap the unit
-
-  const color = 0xFF0000
-
-  const arrow = new THREE.ArrowHelper(dir, startPos, length, color, 1, 0.5);
-  scene.add(arrow);
-
-  unitMesh.userData.moveArrow = arrow;
-  return arrow;
-  }
-
-
 function getUnit(unitOrder: UnitOrder, power: string) {
   if (power === undefined) throw new Error("Must pass the power argument, cannot be undefined")
   let posUnits = gameState.unitMeshes.filter((unit) => {
@@ -276,43 +232,40 @@ function createBounceAnimation(unitMesh: THREE.Group, attemptedDestination: Prov
 
 
 function createHoldAnimation(unitMesh: THREE.Group): Tween {
+  // 1) Build the shield mesh
+  const shield = createShield();
 
-const newshield= createShield()
+  // 2) Figure out where the unit’s feet are
+  const worldPos = new THREE.Vector3();
+  unitMesh.getWorldPosition(worldPos);
 
-const worldPos = new THREE.Vector3();
-unitMesh.getWorldPosition(worldPos);
-newshield.position.set(worldPos.x, -20, worldPos.z+8);
-  gameState.scene.add(newshield);
-  unitMesh.userData.newshield = newshield;
+  shield.position.set(worldPos.x, 16, worldPos.z+8);
+  shield.scale.set(1, 0, 1);           // collapse height
 
-unitMesh.userData.isAnimating = true
-const RiserS= new Tween (newshield.position)
-  .to({ x: worldPos.x, y: 20, z: worldPos.z+8}, 2000)
+  gameState.scene.add(shield);
+  unitMesh.userData.newshield = shield;
+  unitMesh.userData.isAnimating = true;
+
+  const growTween = new Tween(shield.scale)
+    .to({ x: 1, y: 1, z: 1 }, 2000)
     .easing(Easing.Quadratic.Out)
     .onComplete(() => {
-      // parent under the unit so it moves with them
-      gameState.scene.remove(newshield);
-      delete unitMesh.userData.newshield;
-      unitMesh.userData.isAnimating = false
+      gameState.scene.remove(shield);
+      unitMesh.userData.isAnimating = false;
     })
     .start();
 
-  // 5) make sure it's updated each frame
-  gameState.unitAnimations.push(RiserS);
+  gameState.unitAnimations.push(growTween);
 
-  
-
-  return RiserS;
-}
-
-
+  return growTween;
+  }
 /**
  * Creates animations for unit movements based on orders from the previous phase
  *
 **/
 export function createAnimationsForNextPhase() {
   let previousPhase = gameState.gameData?.phases[gameState.phaseIndex == 0 ? 0 : gameState.phaseIndex - 1]
-
+  // const sequence = ["build", "disband", "hold", "move", "bounce", "retreat"]
   // Safety check - if no previous phase or no orders, return
   if (!previousPhase) {
     logger.log("No previous phase to animate");
