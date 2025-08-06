@@ -8,7 +8,7 @@ const bannerEl = document.getElementById('news-banner-content');
 if (!bannerEl) throw Error("News banner not properly initialized")
 
 export function createUpdateNewsBannerEvent(phase: GamePhase): ScheduledEvent {
-  return { id: `updateNewsBanner-${phase.name}`, callback: () => addToNewsBanner(phase.summary) }
+  return new ScheduledEvent(`updateNewsBanner-${phase.name}`, () => { clearNewsBanner(); addToNewsBanner(phase.summary) })
 }
 
 function clearNewsBanner() {
@@ -35,19 +35,8 @@ function addToNewsBanner(newText: string): void {
   bannerEl.style.transition = `opacity ${transitionDuration}s ease-out`;
   bannerEl.style.opacity = '0';
 
-  gameState.eventQueue.scheduleDelay(config.uiFadeDelay, () => {
-    // If the banner only has the default text or is empty, replace it
-    if (
-      bannerEl.textContent?.trim() === 'Diplomatic actions unfolding...' ||
-      bannerEl.textContent?.trim() === ''
-    ) {
-      bannerEl.textContent = newText;
-    } else {
-      // Otherwise append with a separator
-      bannerEl.textContent += '  |  ' + newText;
-    }
+  bannerEl.textContent = newText;
 
-    // Fade back in
-    bannerEl.style.opacity = '1';
-  }, `banner-fade-in-${Date.now()}`);
+  // Fade back in
+  bannerEl.style.opacity = '1';
 }

@@ -3,14 +3,14 @@ import { config } from '../config';
 import { getPowerDisplayName } from '../utils/powerNames';
 import { PowerENUM } from '../types/map';
 import { Moment } from '../types/moments';
-import { Message } from '../types/gameState';
+import { MessageSchemaType } from '../types/gameState';
 import { ScheduledEvent } from '../events.ts'
 
 interface MomentDialogueOptions {
   moment: Moment;
   power1?: PowerENUM;
   power2?: PowerENUM;
-  messages?: Message[];
+  messages?: MessageSchemaType[];
   title?: string;
   onClose?: () => void;
 }
@@ -38,12 +38,9 @@ export function showMomentModal(options: MomentDialogueOptions): void {
 }
 
 export function createMomentEvent(moment: Moment): ScheduledEvent {
-  return {
-    id: `moment-${moment.phase}`,
-    callback: () => showMomentModal({ moment }),
-    triggerAtTime
-
-  }
+  return new ScheduledEvent(
+    `moment-${moment.phase}`,
+    () => showMomentModal({ moment }))
 
 }
 
@@ -96,7 +93,7 @@ function showConversationModalSequence(
  */
 function scheduleMessageSequence(
   container: HTMLElement,
-  messages: Message[],
+  messages: MessageSchemaType[],
   power1: string,
   power2: string,
   callbackOnClose?: () => void
@@ -141,7 +138,7 @@ function scheduleMessageSequence(
  */
 function displaySingleMessage(
   container: HTMLElement,
-  message: Message,
+  message: MessageSchemaType,
   power1: string,
   power2: string,
   callbackFn?: () => void
@@ -510,7 +507,7 @@ function setupEventListeners(onClose?: () => void): void {
 /**
  * Creates a message element for display
  */
-function createMessageElement(message: Message, power1: string, power2: string): HTMLElement {
+function createMessageElement(message: MessageSchemaType, power1: string, power2: string): HTMLElement {
   const messageDiv = document.createElement('div');
   const isFromPower1 = message.sender.toUpperCase() === power1.toUpperCase();
 

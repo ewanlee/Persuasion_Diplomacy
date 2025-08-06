@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import { gameState } from "../gameState";
 import { config } from "../config";
-import { GamePhase, Message } from "../types/gameState";
+import { GamePhase, MessageSchemaType } from "../types/gameState";
 import { getPowerDisplayName } from '../utils/powerNames';
 import { PowerENUM } from '../types/map';
+import { ScheduledEvent } from "../events";
 
 
 //TODO: Sometimes the LLMs use lists, and they don't work in the chats. The just appear as bullets within a single line.
@@ -17,7 +18,7 @@ type chatWindowMap = { [key in PowerENUM]: {
   element: HTMLHtmlElement,
   messagesContainer: HTMLHtmlElement,
   isGlobal: boolean,
-  seenMessages: Set<Message>
+  seenMessages: Set<MessageSchemaType>
 } }
 
 
@@ -145,7 +146,7 @@ function createChatWindow(power, isGlobal = false) {
   };
 }
 
-function fiterAndSortChatMessagesForPhase(phase: GamePhase): Message[] {
+function fiterAndSortChatMessagesForPhase(phase: GamePhase): MessageSchemaType[] {
 
   let relevantMessages = phase.messages.filter(msg => {
     return (
@@ -158,30 +159,42 @@ function fiterAndSortChatMessagesForPhase(phase: GamePhase): Message[] {
   return relevantMessages
 }
 
-// Modified to accumulate messages instead of resetting and only animate for new messages
-/**
- * Updates chat windows with messages for the current phase
- * @param phase The current game phase containing messages
- * @param stepMessages Whether to animate messages one-by-word (true) or show all at once (false)
- */
-export function updateChatWindows(stepMessages = false, callback?: () => void) {
-  // Exit early if no messages
-  if (!gameState.currentPhase.messages || !gameState.currentPhase.messages.length) {
-    console.log("No messages to display for this phase");
-    return;
-  }
+export function createMessageEvents(phase: GamePhase): ScheduledEvent[] {
+  let messageEvents: ScheduledEvent[] = []
 
   // Only show messages relevant to the current player (sent by them, to them, or global)
-  const relevantMessages = gameState.currentPhase.messages.filter(msg => {
+  const relevantMessages = phase.messages.filter(msg => {
     return (
       msg.sender === gameState.currentPower ||
       msg.recipient === gameState.currentPower ||
       msg.recipient === 'GLOBAL'
     );
   });
-
   // Sort messages by time sent
   relevantMessages.sort((a, b) => a.time_sent - b.time_sent);
+
+  for (let msg of relevantMessages) {
+    messageEvents.push(new ScheduledEvent(`message-${phase.name}-${msg.sender}`, () => addMessageToChat(msg, !config.isInstantMode)))
+  }
+  return messageEvents
+}
+
+
+
+// Modified to accumulate messages instead of resetting and only animate for new messages
+/**
+ * Updates chat windows with messages for the current phase
+ * @param phase The current game phase containing messages
+ * @param stepMessages Whether to animate messages one-by-word (true) or show all at once (false)
+ */
+function updateChatWindows(stepMessages = false, callback?: () => void) {
+  // Exit early if no messages
+  if (!gameState.currentPhase.messages || !gameState.currentPhase.messages.length) {
+    console.log("No messages to display for this phase");
+    return;
+  }
+
+
 
   // Log message count but only in debug mode to reduce noise
   if (config.isDebugMode) {
@@ -239,7 +252,7 @@ export function updateChatWindows(stepMessages = false, callback?: () => void) {
 }
 
 // Modified to support word-by-word animation and callback
-function addMessageToChat(msg: Message, animateWords: boolean = false, onComplete: Function | null = null) {
+function addMessageToChat(msg: MessageSchemaType, animateWords: boolean = false, onComplete: Function | null = null) {
   // Determine which chat window to use
   let targetPower;
   if (msg.recipient === 'GLOBAL') {
@@ -357,14 +370,6 @@ function animateMessageWords(message: string, contentSpanId: string, targetPower
     if (wordIndex >= words.length) {
       // All words added - message is complete
       console.log(`Finished animating message with ${words.length} words in ${targetPower} chat`);
-
-      // Add a slight delay after the last word for readability
-      gameState.eventQueue.scheduleDelay(config.messageCompletionDelay, () => {
-        if (onComplete) {
-          onComplete(); // Call the completion callback
-        }
-      }, `message-complete-${Date.now()}`);
-
       return;
     }
 
@@ -381,19 +386,10 @@ function animateMessageWords(message: string, contentSpanId: string, targetPower
     // Longer words get slightly longer display time
     const wordLength = words[wordIndex - 1].length;
     // Use consistent word delay from config
-    const delay = Math.max(config.messageWordDelay, Math.min(200, config.messageWordDelay * (wordLength / 4)));
-    gameState.eventQueue.scheduleDelay(delay, addNextWord, `add-word-${wordIndex}-${Date.now()}`);
 
     // Scroll to ensure newest content is visible
     // Use requestAnimationFrame to batch DOM updates in streaming mode
-    const isStreamingModeForScroll = import.meta.env.MODE === 'production' || import.meta.env.VITE_STREAMING_MODE === 'true';
-    if (isStreamingModeForScroll) {
-      requestAnimationFrame(() => {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-      });
-    } else {
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
+    addNextWord()
   };
 
   // Start animation

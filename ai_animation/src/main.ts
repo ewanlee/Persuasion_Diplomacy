@@ -48,29 +48,12 @@ function initScene() {
         // Update info panel with initial power information
         updateLeaderboard();
 
-        if (phaseStartIdx !== undefined) {
-          gameState.eventQueue.start();
-          gameState.eventQueue.scheduleDelay(500, () => {
-            _setPhase(phaseStartIdx)
-          }, `phase-start-delay-${Date.now()}`)
-        } else if (!isStreamingMode && !config.isTestingMode) {
-          // Auto-start playback for normal mode (not streaming, no specific phase, not testing)
-          // Note: Background audio will start when togglePlayback is called (which provides user interaction context)
-          gameState.eventQueue.start();
-          gameState.eventQueue.scheduleDelay(1000, () => {
-            console.log("Auto-starting playback after game load");
-            togglePlayback(true); // true = explicitly set to playing
-          }, `auto-start-playback-${Date.now()}`);
-        }
-      })
+      });
 
 
       // Initialize debug menu if in debug mode
       if (config.isDebugMode) {
         debugMenuInstance.show();
-      }
-      if (isStreamingMode) {
-        gameState.eventQueue.start();
       }
     })
   }).catch(err => {

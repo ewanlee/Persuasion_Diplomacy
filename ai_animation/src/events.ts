@@ -2,11 +2,33 @@
  * Event queue system for deterministic animations
  */
 
-export interface ScheduledEvent {
+import { config } from "./config";
+import { debugMenuInstance } from "./debug/debugMenu";
+import { toggleEventQueueDisplayState } from "./debug/eventQueueDisplay";
+import { debugMenu } from "./domElements";
+
+export class ScheduledEvent {
   id: string;
   callback: () => void;
   resolved?: boolean;
+  running!: boolean;
   error?: Error; // If the event caused an error, store it here.
+  constructor(id: string, callback: () => void, resolved?: boolean) {
+    this.id = id
+    this.callback = callback
+    this.resolved = resolved ? true : resolved
+  }
+  run = () => {
+    this.running = true
+    try {
+      this.callback();
+    } catch (e) {
+      this.error = e
+    } finally {
+
+      this.resolved = true
+    }
+  }
 }
 
 export class EventQueue {
@@ -19,6 +41,7 @@ export class EventQueue {
    */
   start(): void {
     this.isRunning = true;
+    this.events[0].run()
   }
 
   /**
@@ -44,7 +67,15 @@ export class EventQueue {
    * Add an event to the queue
    */
   schedule(event: ScheduledEvent): void {
+    if (!event || !(event instanceof ScheduledEvent)) {
+      throw new Error("Attempted to schedule an invalid event")
+    }
     this.events.push(event);
+  }
+  scheduleMany(events: ScheduledEvent[]): void {
+    for (let event of events) {
+      this.schedule(event)
+    }
   }
 
 
@@ -56,8 +87,14 @@ export class EventQueue {
     if (this.events.length < 1) return;
 
     if (this.events[0].resolved) {
+      if (this.events[0].error) {
+        console.error(this.events[0].error)
+      }
+      if (config.isDebugMode) {
+        debugMenuInstance.updateTools()
+      }
       this.events.shift()
-      this.events[0].callback()
+      this.events[0].run()
     }
   }
 

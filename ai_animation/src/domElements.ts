@@ -43,7 +43,7 @@ export function createUpdateUIEvent(phase: GamePhase): ScheduledEvent {
     // Fade back in
     phaseDisplay.style.opacity = '1';
   }
-  return { id: `updateUI-${phase.name}`, callback }
+  return new ScheduledEvent(`updateUI-${phase.name}`, callback)
 }
 
 

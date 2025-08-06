@@ -1,5 +1,6 @@
-import { gameState } from "./gameState";
 import { config } from "./config";
+import { ScheduledEvent } from "./events";
+import { GamePhase } from "./types/gameState";
 // TODO: We need to get these pieces of audio ahead of time, instead of paying for them each time we load the front end
 //  These pieces of audio are predetermined. 
 
@@ -59,30 +60,38 @@ async function testElevenLabsKey() {
   }
 }
 
+
+export function createNarratorAudioEvent(phase: GamePhase): ScheduledEvent {
+
+  return new ScheduledEvent(`narratorSpeech-${phase.name}`, () => speakSummary(phase.summary))
+
+}
 /**
  * Call ElevenLabs TTS to speak the summary out loud.
  * Returns a promise that resolves only after the audio finishes playing (or fails).
  * Truncates text to first 100 characters for brevity and API limitations.
  * @returns Promise that resolves when audio completes or rejects on error
  */
-export async function speakSummary(): Promise<void> {
+async function speakSummary(summary: string): Promise<void> {
   if (!config.speechEnabled) {
     console.log("Speech disabled via config, skipping TTS");
     return;
   }
-  const summaryText = gameState.currentPhase.summary
+  if (!summary || summary.length === 0) {
+    throw new Error("Attempted speech with no text")
+  }
 
-  if (!summaryText || summaryText.trim() === '') {
+  if (!summary || summary.trim() === '') {
     console.warn("No summary text provided to speakSummary function");
     return;
   }
 
   // Check if the summary is in JSON format and extract the actual summary text
-  let textToSpeak = summaryText;
+  let textToSpeak = summary;
   try {
     // Check if it starts with a JSON format indicator
-    if (summaryText.trim().startsWith('{') && summaryText.includes('"summary"')) {
-      const parsedSummary = JSON.parse(summaryText);
+    if (summary.trim().startsWith('{') && summary.includes('"summary"')) {
+      const parsedSummary = JSON.parse(summary);
       if (parsedSummary.summary) {
         textToSpeak = parsedSummary.summary;
         // clean text, drop /n

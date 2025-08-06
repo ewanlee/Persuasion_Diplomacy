@@ -1,11 +1,12 @@
 import * as THREE from "three"
 import { type CoordinateData, CoordinateDataSchema, PowerENUM } from "./types/map"
-import type { GameSchemaType, Message } from "./types/gameState";
+import type { GameSchemaType, MessageSchemaType } from "./types/gameState";
+import { GameSchema } from "./types/gameState";
 import { debugMenuInstance } from "./debug/debugMenu.ts"
 import { config } from "./config.ts"
-import { GameSchema, type MessageSchema } from "./types/gameState";
+import { createNarratorAudioEvent } from "./speech";
 import { prevBtn, nextBtn, playBtn, speedSelector, mapView, updateGameIdDisplay, createUpdateUIEvent } from "./domElements";
-import { createChatWindows } from "./domElements/chatWindows";
+import { createChatWindows, createMessageEvents } from "./domElements/chatWindows";
 import { logger } from "./logger";
 import { OrbitControls } from "three/examples/jsm/Addons.js";
 import { displayInitialPhase, togglePlayback } from "./phase";
@@ -13,8 +14,10 @@ import { Tween, Group as TweenGroup } from "@tweenjs/tween.js";
 import { MomentsDataSchema, Moment, NormalizedMomentsData } from "./types/moments";
 import { updateLeaderboard } from "./components/leaderboard";
 import { closeVictoryModal } from "./components/victoryModal.ts";
-import { EventQueue } from "./events.ts";
-import { createAnimationsForNextPhase } from "./units/animate.ts";
+import { EventQueue, ScheduledEvent } from "./events.ts";
+import { createAnimateUnitsEvent, createAnimationsForNextPhase } from "./units/animate.ts";
+import { createUpdateNewsBannerEvent } from "./components/newsBanner.ts";
+import { createMomentEvent } from "./components/momentModal.ts";
 
 //FIXME: This whole file is a mess. Need to organize and format
 
@@ -198,26 +201,29 @@ class GameState {
       let updateUIEvent = createUpdateUIEvent(phase)
       this.eventQueue.schedule(updateUIEvent)
 
+
+
       // News Banner Text
-      this.eventQueue.schedule(createNewsBannerUpdateEvent(phase))
+      this.eventQueue.schedule(createUpdateNewsBannerEvent(phase))
       // Narrator Audio
       this.eventQueue.schedule(createNarratorAudioEvent(phase))
       // Messages play first
       let messageEvents = createMessageEvents(phase)
-      this.eventQueue.schedule(messageEvents)
+      this.eventQueue.scheduleMany(messageEvents)
 
       // Check if there is a moment to display
       let phaseMoment = this.checkPhaseHasMoment(phase.name)
       if (phaseMoment) {
         this.eventQueue.schedule(createMomentEvent(phaseMoment))
       }
-      let animationEvents = createAnimationsForNextPhase(phase)
+      let animationEvents = createAnimateUnitsEvent(phase)
       this.eventQueue.schedule(animationEvents)
 
+      // Lastly, update the gamePhase id
+      this.eventQueue.schedule(new ScheduledEvent(`phaseidUpdate-${phase.name}`, () => { this.phaseIndex = gameData.phases.indexOf(phase) }))
     }
-
-
   }
+
   /**
    * Load game data from a JSON string and initialize the game state
    * @param gameDataString JSON string containing game data
@@ -303,6 +309,11 @@ class GameState {
               // Update game ID display
               updateGameIdDisplay();
 
+              this._fillEventQueue(this.gameData)
+              // Start the game
+              togglePlayback(true)
+
+
             })
           resolve()
         } else {
@@ -379,13 +390,6 @@ class GameState {
    * Loads the next game in the order, reseting the board and gameState
    */
   loadNextGame = (setPlayback: boolean = false) => {
-    // Ensure any open overlays are cleaned up before loading next game
-    if (this.isDisplayingMoment) {
-      // Import at runtime to avoid circular dependency
-      import('./components/momentModal.ts').then(({ closeMomentModal: closeTwoPowerConversation }) => {
-        closeTwoPowerConversation(true);
-      });
-    }
 
     let gameId = this.gameId + 1
     let contPlaying = false
