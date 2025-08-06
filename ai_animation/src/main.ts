@@ -7,7 +7,6 @@ import { config } from "./config";
 import { Tween, Group, Easing } from "@tweenjs/tween.js";
 import { initRotatingDisplay, } from "./components/rotatingDisplay";
 import { debugMenuInstance } from "./debug/debugMenu";
-import { initializeBackgroundAudio, startBackgroundAudio } from "./backgroundAudio";
 import { updateLeaderboard } from "./components/leaderboard";
 import { _setPhase, nextPhase, previousPhase } from "./phase";
 import { togglePlayback } from "./phase";
@@ -25,7 +24,6 @@ let hasPanicked = false;
 function initScene() {
   gameState.createThreeScene()
 
-  initializeBackgroundAudio()
 
 
   // Initialize standings board
@@ -70,7 +68,7 @@ function initScene() {
         debugMenuInstance.show();
       }
       if (isStreamingMode) {
-        startBackgroundAudio()
+
         gameState.eventQueue.start();
         gameState.eventQueue.scheduleDelay(2000, () => {
           togglePlayback()
@@ -161,7 +159,7 @@ function updateAnimations() {
  */
 function animate() {
   if (hasPanicked) return; // Stop the loop if we've panicked
-  
+
   try {
     // All things that aren't ThreeJS items happen in the eventQueue. The queue if filled with the first phase before the animate is kicked off, then all subsequent events are updated when other events finish. F
     // For instance, when the messages finish playing, they should kick off the check to see if we should advance turns.
@@ -171,7 +169,7 @@ function animate() {
     hasPanicked = true;
     return; // Exit without scheduling next frame
   }
-  
+
   requestAnimationFrame(animate);
 
   if (gameState.isPlaying) {
@@ -219,8 +217,6 @@ nextBtn.addEventListener('click', () => {
 });
 
 playBtn.addEventListener('click', () => {
-  // Ensure background audio is ready when user manually clicks play
-  startBackgroundAudio();
   togglePlayback();
 });
 

@@ -80,7 +80,58 @@ function loadFileFromServer(filePath: string): Promise<string> {
       })
   })
 }
+function initializeBackgroundAudio(): Audio {
 
+  // Create audio element
+  let backgroundAudio = new Audio();
+  backgroundAudio.loop = true;
+  backgroundAudio.volume = 0.4; // 40% volume as requested
+
+  // For now, we'll use a placeholder - you should download and convert the wave file
+  // to a smaller MP3 format (aim for < 10MB) and place it in public/sounds/
+  backgroundAudio.src = './sounds/background_ambience.mp3';
+
+  // Handle audio loading
+  backgroundAudio.addEventListener('canplaythrough', () => {
+    console.log('Background audio loaded and ready to play');
+  });
+
+  backgroundAudio.addEventListener('error', (e) => {
+    console.error('Failed to load background audio:', e);
+  });
+  return backgroundAudio
+}
+
+class GameAudio {
+  players: { Name: String, track: Audio }[]
+
+  constructor() {
+    this.players = [{ Name: "background_music", track: initializeBackgroundAudio() }]
+  }
+  pause = (track_idx?: number | undefined) => {
+    if (!track_idx) {
+      // Pause all songs
+      for (let player of this.players) {
+        player.track.pause()
+      }
+    } else {
+      this.players[track_idx].track.pause()
+    }
+
+  }
+
+  play = (track_idx?: number | undefined) => {
+    if (!track_idx) {
+      // Play all songs
+      for (let player of this.players) {
+        player.track.play()
+      }
+    } else {
+      this.players[track_idx].track.pause()
+    }
+
+  }
+}
 
 class GameState {
   boardState!: CoordinateData
@@ -91,6 +142,7 @@ class GameState {
   boardName: string
   currentPower!: PowerENUM
   isPlaying: boolean
+  audio: GameAudio
 
 
   //Scene for three.js
@@ -121,6 +173,7 @@ class GameState {
     this.boardName = boardName
     this.gameId = 0
     this.isPlaying = false
+    this.audio = new GameAudio()
 
     this.scene = new THREE.Scene()
     this.unitMeshes = []

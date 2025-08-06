@@ -13,7 +13,6 @@ import { closeVictoryModal, showVictoryModal } from "./components/victoryModal";
 import { notifyPhaseChange } from "./webhooks/phaseNotifier";
 import { updateLeaderboard } from "./components/leaderboard";
 import { updateRotatingDisplay } from "./components/rotatingDisplay";
-import { startBackgroundAudio, stopBackgroundAudio } from "./backgroundAudio";
 
 const MOMENT_THRESHOLD = 8.0
 // If we're in debug mode or instant mode, show it quick, otherwise show it for 30 seconds
@@ -82,7 +81,6 @@ export function togglePlayback(explicitSet: boolean | undefined = undefined) {
 
   // TODO: Likely not how we want to handle the speaking section of this. 
   //   Should be able to pause the other elements while we're speaking
-  if (gameState.isSpeaking) return;
 
   gameState.isPlaying = !gameState.isPlaying;
   if (typeof explicitSet === "boolean") {
@@ -96,7 +94,7 @@ export function togglePlayback(explicitSet: boolean | undefined = undefined) {
     logger.log("Starting playback...");
 
     // Start background audio when playback starts
-    startBackgroundAudio();
+    gameState.audio.play();
 
     // Start event queue for deterministic animations
     gameState.eventQueue.start();
@@ -115,10 +113,11 @@ export function togglePlayback(explicitSet: boolean | undefined = undefined) {
   } else {
     if (gameState.cameraPanAnim) gameState.cameraPanAnim.getAll()[0].pause();
     playBtn.textContent = "▶ Play";
+    gameState.audio.pause()
     // (playbackTimer is replaced by event queue system)
 
     // Stop background audio when pausing
-    stopBackgroundAudio();
+    gameState.audio.pause();
 
     // Ensure any open two-power conversations are closed when pausing
     closeTwoPowerConversation(true); // immediate = true
