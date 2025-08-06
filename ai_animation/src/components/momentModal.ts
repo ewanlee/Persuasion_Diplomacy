@@ -4,8 +4,9 @@ import { getPowerDisplayName } from '../utils/powerNames';
 import { PowerENUM } from '../types/map';
 import { Moment } from '../types/moments';
 import { Message } from '../types/gameState';
+import { ScheduledEvent } from '../events.ts'
 
-interface TwoPowerDialogueOptions {
+interface MomentDialogueOptions {
   moment: Moment;
   power1?: PowerENUM;
   power2?: PowerENUM;
@@ -20,11 +21,11 @@ let dialogueOverlay: HTMLElement | null = null;
  * Shows a dialogue box displaying conversation between two powers
  * @param options Configuration for the dialogue display
  */
-export function showTwoPowerConversation(options: TwoPowerDialogueOptions): void {
+export function showMomentModal(options: MomentDialogueOptions): void {
   const { moment, power1, power2, title, onClose } = options;
 
   // Close any existing dialogue
-  closeTwoPowerConversation();
+  closeMomentModal();
 
   if (moment.raw_messages.length === 0) {
     throw new Error(
@@ -34,6 +35,16 @@ export function showTwoPowerConversation(options: TwoPowerDialogueOptions): void
   }
 
   showConversationModalSequence(title, moment, onClose);
+}
+
+export function createMomentEvent(moment: Moment): ScheduledEvent {
+  return {
+    id: `moment-${moment.phase}`,
+    callback: () => showMomentModal({ moment }),
+    triggerAtTime
+
+  }
+
 }
 
 /**
@@ -100,7 +111,7 @@ function scheduleMessageSequence(
       // Schedule conversation close after all messages are shown
       gameState.eventQueue.scheduleDelay(config.conversationFinalDelay, () => {
         console.log('Closing two-power conversation and calling onClose callback');
-        closeTwoPowerConversation();
+        closeMomentModal();
         if (callbackOnClose) callbackOnClose();
       }, `close-conversation-after-messages-${Date.now()}`);
       return;
@@ -162,7 +173,7 @@ function displaySingleMessage(
  * Closes the two-power conversation dialogue
  * @param immediate If true, removes overlay immediately without animation
  */
-export function closeTwoPowerConversation(immediate: boolean = false): void {
+export function closeMomentModal(immediate: boolean = false): void {
   dialogueOverlay = document.getElementById("dialogue-overlay")
   if (dialogueOverlay) {
     if (immediate) {
@@ -214,9 +225,7 @@ function createDialogueContainer(power1: string, power2: string, title?: string,
   const container = document.createElement('div');
   container.className = 'dialogue-container';
   container.style.cssText = `
-        background: radial-gradient(ellipse at center, #f7ecd1 0%, #dbc08c 100%);
-        border: 3px solid #4f3b16;
-        border-radius: 8px;
+        background: radial-gradient(ellipse at center, #f7ecd1 0%, #dbc08w8px;
         box-shadow: 0 0 15px rgba(0,0,0,0.5);
         width: 90%;
         height: 85%;
@@ -466,7 +475,7 @@ function setupEventListeners(onClose?: () => void): void {
 
   const closeButton = dialogueOverlay.querySelector('.close-button');
   const handleClose = () => {
-    closeTwoPowerConversation(true); // immediate close for manual actions
+    closeMomentModal(true); // immediate close for manual actions
     onClose?.();
 
     // When manually closed, still advance phase if playing

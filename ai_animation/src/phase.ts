@@ -1,14 +1,15 @@
 import { gameState } from "./gameState";
 import { logger } from "./logger";
-import { updatePhaseDisplay, playBtn, prevBtn, nextBtn } from "./domElements";
+import { playBtn, prevBtn, nextBtn } from "./domElements";
 import { initUnits } from "./units/create";
 import { updateSupplyCenterOwnership, updateMapOwnership as _updateMapOwnership, updateMapOwnership } from "./map/state";
-import { updateChatWindows, addToNewsBanner } from "./domElements/chatWindows";
+import { updateChatWindows } from "./domElements/chatWindows";
+import { createUpdateNewsBannerEvent } from "./components/newsBanner";
 import { createAnimationsForNextPhase } from "./units/animate";
 import { speakSummary } from "./speech";
 import { config } from "./config";
 import { debugMenuInstance } from "./debug/debugMenu";
-import { showTwoPowerConversation, closeTwoPowerConversation } from "./components/twoPowerConversation";
+import { showMomentModal, closeMomentModal } from "./components/momentModal";
 import { closeVictoryModal, showVictoryModal } from "./components/victoryModal";
 import { notifyPhaseChange } from "./webhooks/phaseNotifier";
 import { updateLeaderboard } from "./components/leaderboard";
@@ -91,7 +92,6 @@ export function togglePlayback(explicitSet: boolean | undefined = undefined) {
     playBtn.textContent = "⏸ Pause";
     prevBtn.disabled = true;
     nextBtn.disabled = true;
-    logger.log("Starting playback...");
 
     // Start background audio when playback starts
     gameState.audio.play();
@@ -101,36 +101,19 @@ export function togglePlayback(explicitSet: boolean | undefined = undefined) {
 
     if (gameState.cameraPanAnim) gameState.cameraPanAnim.getAll()[1].start()
 
-    // First, show the messages of the current phase if it's the initial playback
-    if (gameState.currentPhase.messages && gameState.currentPhase.messages.length) {
-      // Show messages with stepwise animation
-      logger.log(`Playing ${gameState.currentPhase.messages.length} messages from phase ${gameState.phaseIndex + 1}/${gameState.gameData.phases.length}`);
-      displayPhase()
-    } else {
-      // No messages, go straight to unit animations
-      logger.log("No messages for this phase, proceeding to animations");
-    }
   } else {
     if (gameState.cameraPanAnim) gameState.cameraPanAnim.getAll()[0].pause();
     playBtn.textContent = "▶ Play";
-    gameState.audio.pause()
-    // (playbackTimer is replaced by event queue system)
 
     // Stop background audio when pausing
     gameState.audio.pause();
 
     // Ensure any open two-power conversations are closed when pausing
-    closeTwoPowerConversation(true); // immediate = true
+    closeMomentModal(true); // immediate = true
 
     // Stop and reset event queue when pausing with cleanup
     gameState.eventQueue.stop();
-    gameState.eventQueue.reset(() => {
-      // Ensure proper state cleanup when events are canceled
-      gameState.messagesPlaying = false;
-      gameState.isAnimating = false;
-    });
 
-    gameState.messagesPlaying = false;
     prevBtn.disabled = false;
     nextBtn.disabled = false;
   }
@@ -138,10 +121,12 @@ export function togglePlayback(explicitSet: boolean | undefined = undefined) {
 
 
 export function scheduleNextPhase() {
+  throw new Error("Function is deprecated")
   gameState.eventQueue.scheduleDelay(0, nextPhase)
 }
 
 export function scheduleSummarySpeech() {
+  throw new Error("Function is deprecated")
   // Delay speech in streaming mode
   gameState.eventQueue.scheduleDelay(config.speechDelay, () => {
     // Speak the summary and advance after
@@ -159,15 +144,10 @@ export function nextPhase() {
     const power1 = moment.powers_involved[0];
     const power2 = moment.powers_involved[1];
 
-    showTwoPowerConversation({
+    showMomentModal({
       power1: power1,
       power2: power2,
       moment: moment,
-      onClose: () => {
-        // Schedule the speaking of the summary after the conversation closes
-        scheduleSummarySpeech();
-        if (gameState.isPlaying) _setPhase(gameState.phaseIndex + 1)
-      }
     })
   } else {
     // No conversation to show, proceed with normal flow
@@ -216,12 +196,9 @@ export function displayPhase(skipMessages = false) {
 
 
   // Update UI elements with smooth transitions
-  updateRotatingDisplay(gameState.gameData, gameState.phaseIndex, gameState.currentPower, true);
+  // TODO: Re-add the rotatingDisplay. Removed it as it won't fit in the eventQueue. 
+  // updateRotatingDisplay(gameState.gameData, gameState.phaseIndex, gameState.currentPower, true);
   _updateMapOwnership();
-
-  // Add phase info to news banner if not already there
-  const phaseBannerText = `Phase: ${currentPhase.name}: ${currentPhase.summary}`;
-  addToNewsBanner(phaseBannerText);
 
   // Log phase details to console only, don't update info panel with this
   const phaseInfo = `Phase: ${currentPhase.name}\nSCs: ${currentPhase.state?.centers ? JSON.stringify(currentPhase.state.centers) : 'None'}\nUnits: ${currentPhase.state?.units ? JSON.stringify(currentPhase.state.units) : 'None'}`;
@@ -231,7 +208,7 @@ export function displayPhase(skipMessages = false) {
   updateLeaderboard();
 
   // Show messages with animation or immediately based on skipMessages flag
-  updateChatWindows(true, scheduleNextPhase);
+  //updateChatWindows(true, scheduleNextPhase);
 
   // Only animate if not the first phase and animations are requested
   if (!isFirstPhase && !skipMessages) {

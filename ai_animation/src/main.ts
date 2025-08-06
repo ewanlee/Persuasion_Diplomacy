@@ -36,8 +36,10 @@ function initScene() {
   gameState.loadBoardState().then(() => {
     initMap(gameState.scene).then(() => {
 
+      // TODO: Re-add the rotating display
+      //
       // Initialize rotating display
-      initRotatingDisplay();
+      //initRotatingDisplay();
 
       gameState.cameraPanAnim = createCameraPan()
 
@@ -68,11 +70,7 @@ function initScene() {
         debugMenuInstance.show();
       }
       if (isStreamingMode) {
-
         gameState.eventQueue.start();
-        gameState.eventQueue.scheduleDelay(2000, () => {
-          togglePlayback()
-        }, `streaming-mode-start-${Date.now()}`)
       }
     })
   }).catch(err => {

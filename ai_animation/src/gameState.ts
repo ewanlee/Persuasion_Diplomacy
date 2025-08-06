@@ -4,7 +4,7 @@ import type { GameSchemaType, Message } from "./types/gameState";
 import { debugMenuInstance } from "./debug/debugMenu.ts"
 import { config } from "./config.ts"
 import { GameSchema, type MessageSchema } from "./types/gameState";
-import { prevBtn, nextBtn, playBtn, speedSelector, mapView, updateGameIdDisplay, updatePhaseDisplay } from "./domElements";
+import { prevBtn, nextBtn, playBtn, speedSelector, mapView, updateGameIdDisplay, createUpdateUIEvent } from "./domElements";
 import { createChatWindows } from "./domElements/chatWindows";
 import { logger } from "./logger";
 import { OrbitControls } from "three/examples/jsm/Addons.js";
@@ -13,7 +13,8 @@ import { Tween, Group as TweenGroup } from "@tweenjs/tween.js";
 import { MomentsDataSchema, Moment, NormalizedMomentsData } from "./types/moments";
 import { updateLeaderboard } from "./components/leaderboard";
 import { closeVictoryModal } from "./components/victoryModal.ts";
-import { EventQueue } from "./types/events";
+import { EventQueue } from "./events.ts";
+import { createAnimationsForNextPhase } from "./units/animate.ts";
 
 //FIXME: This whole file is a mess. Need to organize and format
 
@@ -80,6 +81,7 @@ function loadFileFromServer(filePath: string): Promise<string> {
       })
   })
 }
+
 function initializeBackgroundAudio(): Audio {
 
   // Create audio element
@@ -185,12 +187,37 @@ class GameState {
   }
   set phaseIndex(val: number) {
     this._phaseIndex = val
-    updatePhaseDisplay()
   }
   get phaseIndex() {
     return this._phaseIndex
   }
 
+  _fillEventQueue = (gameData: GameSchemaType) => {
+    for (let phase of gameData.phases) {
+      // Update Phase Display 
+      let updateUIEvent = createUpdateUIEvent(phase)
+      this.eventQueue.schedule(updateUIEvent)
+
+      // News Banner Text
+      this.eventQueue.schedule(createNewsBannerUpdateEvent(phase))
+      // Narrator Audio
+      this.eventQueue.schedule(createNarratorAudioEvent(phase))
+      // Messages play first
+      let messageEvents = createMessageEvents(phase)
+      this.eventQueue.schedule(messageEvents)
+
+      // Check if there is a moment to display
+      let phaseMoment = this.checkPhaseHasMoment(phase.name)
+      if (phaseMoment) {
+        this.eventQueue.schedule(createMomentEvent(phaseMoment))
+      }
+      let animationEvents = createAnimationsForNextPhase(phase)
+      this.eventQueue.schedule(animationEvents)
+
+    }
+
+
+  }
   /**
    * Load game data from a JSON string and initialize the game state
    * @param gameDataString JSON string containing game data
@@ -355,7 +382,7 @@ class GameState {
     // Ensure any open overlays are cleaned up before loading next game
     if (this.isDisplayingMoment) {
       // Import at runtime to avoid circular dependency
-      import('./components/twoPowerConversation').then(({ closeTwoPowerConversation }) => {
+      import('./components/momentModal.ts').then(({ closeMomentModal: closeTwoPowerConversation }) => {
         closeTwoPowerConversation(true);
       });
     }
@@ -367,11 +394,6 @@ class GameState {
     }
     this.loadGameFile(gameId).then(() => {
       gameState.gameId = gameId
-      if (contPlaying) {
-        this.eventQueue.scheduleDelay(config.victoryModalDisplayMs, () => {
-          togglePlayback(true)
-        }, `load-next-game-playback-${Date.now()}`)
-      }
     }).catch(() => {
       console.warn("caught error trying to advance game. Setting gameId to 0 and restarting...")
       this.loadGameFile(0)
