@@ -1,6 +1,7 @@
 import { config } from "./config";
 import { ScheduledEvent } from "./events";
 import { GamePhase } from "./types/gameState";
+import { gameState } from "./gameState";
 // TODO: We need to get these pieces of audio ahead of time, instead of paying for them each time we load the front end
 //  These pieces of audio are predetermined. 
 
@@ -63,7 +64,18 @@ async function testElevenLabsKey() {
 
 export function createNarratorAudioEvent(phase: GamePhase): ScheduledEvent {
 
-  return new ScheduledEvent(`narratorSpeech-${phase.name}`, () => speakSummary(phase.summary))
+  return new ScheduledEvent(`narratorSpeech-${phase.name}`, () => {
+    // Immediately set isSpeaking flag and resolve promise
+    gameState.isSpeaking = true;
+    
+    // Start audio generation in background (don't wait for it)
+    speakSummary(phase.summary).finally(() => {
+      gameState.isSpeaking = false;
+    });
+    
+    // Resolve immediately so event queue can continue
+    return Promise.resolve();
+  })
 
 }
 /**

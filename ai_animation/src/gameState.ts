@@ -158,6 +158,7 @@ class GameState {
   boardName: string
   currentPower!: PowerENUM
   isPlaying: boolean
+  isSpeaking: boolean
   audio: GameAudio
 
 
@@ -189,6 +190,7 @@ class GameState {
     this.boardName = boardName
     this.gameId = 0
     this.isPlaying = false
+    this.isSpeaking = false
     this.audio = new GameAudio()
 
     this.scene = new THREE.Scene()
@@ -244,7 +246,7 @@ class GameState {
         while (true) {
           let narrator = this.audio.getNarratorPlayer()
 
-          let narratorFinished = (narrator === null) || narrator.ended
+          let narratorFinished = (narrator === null) || narrator.ended || !this.isSpeaking
           if (this.unitAnimations.length === 0 && narratorFinished) {
             this.phaseIndex = phaseIdx
             updateMapOwnership()

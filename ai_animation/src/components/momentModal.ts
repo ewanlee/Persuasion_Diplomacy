@@ -204,25 +204,6 @@ export function closeMomentModal(immediate: boolean = false): void {
 function createDialogueOverlay(): HTMLElement {
   const overlay = document.createElement('div');
   overlay.id = 'dialogue-overlay';
-  overlay.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0, 0, 0, 0.7);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 1000;
-        opacity: 0;
-        transition: opacity 0.3s ease;
-    `;
-
-  // Trigger fade in
-  // Trigger fade in with a small timeout
-  setTimeout(() => overlay.style.opacity = '1', 10);
-
   return overlay;
 }
 
@@ -231,24 +212,11 @@ function createDialogueOverlay(): HTMLElement {
  */
 function createDialogueContainer(power1: string, power2: string, title?: string, moment?: Moment): HTMLElement {
   const container = document.createElement('div');
-  container.className = 'dialogue-container';
-  container.style.cssText = `
-        background: radial-gradient(ellipse at center, #f7ecd1 0%, #dbc08w8px;
-        box-shadow: 0 0 15px rgba(0,0,0,0.5);
-        width: 90%;
-        height: 85%;
-        position: relative;
-        padding: 20px;
-        display: flex;
-        flex-direction: column;
-    `;
+  container.className = "dialogue-container"
 
   // Create header section with title and moment info
   const headerSection = document.createElement('div');
-  headerSection.style.cssText = `
-        margin-bottom: 15px;
-        text-align: center;
-    `;
+  headerSection.id = "dialogue-header"
 
   // Add main title
   const titleElement = document.createElement('h2');
@@ -267,7 +235,7 @@ function createDialogueContainer(power1: string, power2: string, title?: string,
     const momentTypeElement = document.createElement('div');
     momentTypeElement.textContent = `${moment.category} (Interest: ${moment.interest_score}/10)`;
     momentTypeElement.style.cssText = `
-        background: rgba(75, 59, 22, 0.8);
+        background: rgba(75, 59, 22);
         color: #f7ecd1;
         padding: 5px 15px;
         border-radius: 15px;
@@ -344,7 +312,7 @@ function createDiaryBox(power: PowerENUM, diaryContent: string): HTMLElement {
   diaryBox.style.cssText = `
         flex: 1;
         min-height: 0;
-        background: rgba(255, 255, 255, 0.4);
+        background: rgba(255, 255, 255);
         border: 2px solid #8b7355;
         border-radius: 8px;
         padding: 10px;
@@ -363,7 +331,7 @@ function createDiaryBox(power: PowerENUM, diaryContent: string): HTMLElement {
         font-weight: bold;
         text-align: center;
         padding: 5px;
-        background: rgba(75, 59, 22, 0.1);
+        background: rgba(75, 59, 22, 0.8);
         border-radius: 4px;
         border-bottom: 1px solid #8b7355;
     `;
@@ -391,7 +359,7 @@ function createDiaryBox(power: PowerENUM, diaryContent: string): HTMLElement {
       p.style.cssText = `
             margin: 0 0 4px 0;
             padding: 3px;
-            background: ${index % 2 === 0 ? 'rgba(255,255,255,0.2)' : 'transparent'};
+            background: ${index % 2 === 0 ? 'rgba(255,255,255)' : 'transparent'};
             border-radius: 3px;
         `;
       contentArea.appendChild(p);
@@ -428,7 +396,7 @@ function createConversationArea(): HTMLElement {
         padding: 8px;
         border: 2px solid #8b7355;
         border-radius: 5px;
-        background: rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.8);
         display: flex;
         flex-direction: column;
         gap: 8px;
