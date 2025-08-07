@@ -1,6 +1,6 @@
 import * as THREE from "three"
 import { type CoordinateData, CoordinateDataSchema, PowerENUM } from "./types/map"
-import type { GameSchemaType, MessageSchemaType } from "./types/gameState";
+import type { GamePhase, GameSchemaType, MessageSchemaType } from "./types/gameState";
 import { GameSchema } from "./types/gameState";
 import { debugMenuInstance } from "./debug/debugMenu.ts"
 import { config } from "./config.ts"
@@ -18,6 +18,7 @@ import { EventQueue, ScheduledEvent } from "./events.ts";
 import { createAnimateUnitsEvent, createAnimationsForNextPhase } from "./units/animate.ts";
 import { createUpdateNewsBannerEvent } from "./components/newsBanner.ts";
 import { createMomentEvent } from "./components/momentModal.ts";
+import { updateMapOwnership } from "./map/state.ts";
 
 //FIXME: This whole file is a mess. Need to organize and format
 
@@ -113,6 +114,16 @@ class GameAudio {
   constructor() {
     this.players = [{ Name: "background_music", track: initializeBackgroundAudio() }]
   }
+  getNarratorPlayer = (): Audio | null => {
+    let player = this.players.filter((player) => player.Name.includes("Narrator"))
+    if (player.length === 0) {
+      return null
+    } else {
+      return player[0].track
+    }
+
+
+  }
   pause = (track_idx?: number | undefined) => {
     if (!track_idx) {
       // Pause all songs
@@ -196,7 +207,7 @@ class GameState {
   }
 
   _fillEventQueue = (gameData: GameSchemaType) => {
-    for (let phase of gameData.phases) {
+    for (let [phaseIdx, phase] of gameData.phases.entries()) {
       // Update Phase Display 
       let updateUIEvent = createUpdateUIEvent(phase)
       this.eventQueue.schedule(updateUIEvent)
@@ -216,13 +227,37 @@ class GameState {
       if (phaseMoment) {
         this.eventQueue.schedule(createMomentEvent(phaseMoment))
       }
-      let animationEvents = createAnimateUnitsEvent(phase)
-      this.eventQueue.schedule(animationEvents)
+      if (!(phaseIdx === 0)) {
+
+        let animationEvents = createAnimateUnitsEvent(phase, phaseIdx)
+        this.eventQueue.schedule(animationEvents)
+      }
 
       // Lastly, update the gamePhase id
-      this.eventQueue.schedule(new ScheduledEvent(`phaseidUpdate-${phase.name}`, () => { this.phaseIndex = gameData.phases.indexOf(phase) }))
+      this.eventQueue.schedule(this.createNextPhaseEvent(phase, phaseIdx))
     }
   }
+  createNextPhaseEvent = (phase: GamePhase, phaseIdx: number): ScheduledEvent => {
+    return new ScheduledEvent(
+      `movePhase-${phase.name}`,
+      async () => {
+        while (true) {
+          let narrator = this.audio.getNarratorPlayer()
+
+          let narratorFinished = (narrator === null) || narrator.ended
+          if (this.unitAnimations.length === 0 && narratorFinished) {
+            this.phaseIndex = phaseIdx
+            updateMapOwnership()
+            break;
+          }
+
+          // Wait 500ms before checking again
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+      })
+  }
+
 
   /**
    * Load game data from a JSON string and initialize the game state

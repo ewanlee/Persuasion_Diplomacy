@@ -58,7 +58,7 @@ class EventQueueDisplay {
         /* Wrapper for debug menu and event queue */
         #debug-wrapper {
           position: fixed;
-          top: 20px;
+          top: 200px;
           right: 20px;
           width: 300px;
           display: flex;

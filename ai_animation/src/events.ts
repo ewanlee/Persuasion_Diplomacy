@@ -4,30 +4,32 @@
 
 import { config } from "./config";
 import { debugMenuInstance } from "./debug/debugMenu";
-import { toggleEventQueueDisplayState } from "./debug/eventQueueDisplay";
-import { debugMenu } from "./domElements";
 
 export class ScheduledEvent {
   id: string;
-  callback: () => void;
+  callback: () => void | Promise<void>;
   resolved?: boolean;
   running!: boolean;
   error?: Error; // If the event caused an error, store it here.
-  constructor(id: string, callback: () => void, resolved?: boolean) {
+  promise?: Promise<void>;
+
+  constructor(id: string, callback: () => void | Promise<void>, resolved?: boolean) {
     this.id = id
     this.callback = callback
     this.resolved = resolved ? true : resolved
   }
+
   run = () => {
     this.running = true
-    try {
-      this.callback();
-    } catch (e) {
-      this.error = e
-    } finally {
-
-      this.resolved = true
-    }
+    // Store the promise so we can track it
+    this.promise = Promise.resolve(this.callback())
+      .then(() => {
+        this.resolved = true;
+      })
+      .catch((e) => {
+        this.error = e;
+        this.resolved = true;
+      });
   }
 }
 
@@ -35,13 +37,16 @@ export class EventQueue {
   private events: ScheduledEvent[] = [];
   private startTime: number = 0;
   private isRunning: boolean = false;
+  private currentEventPromise?: Promise<void>;
 
   /**
    * Start the event queue with current time as reference
    */
   start(): void {
     this.isRunning = true;
-    this.events[0].run()
+    if (this.events.length > 0) {
+      this.events[0].run()
+    }
   }
 
   /**
@@ -58,6 +63,7 @@ export class EventQueue {
   reset(resetCallback?: () => void): void {
     this.events = [];
     this.isRunning = false;
+    this.currentEventPromise = undefined;
     if (resetCallback) {
       resetCallback();
     }
@@ -86,15 +92,26 @@ export class EventQueue {
     if (!this.isRunning) return;
     if (this.events.length < 1) return;
 
-    if (this.events[0].resolved) {
-      if (this.events[0].error) {
-        console.error(this.events[0].error)
+    const currentEvent = this.events[0];
+
+    // Start the event if not started
+    if (!currentEvent.running && !currentEvent.resolved) {
+      currentEvent.run();
+      this.currentEventPromise = currentEvent.promise;
+    }
+
+    // Check if current event is complete
+    if (currentEvent.resolved) {
+      if (currentEvent.error) {
+        console.error(currentEvent.error)
       }
       if (config.isDebugMode) {
         debugMenuInstance.updateTools()
       }
       this.events.shift()
-      this.events[0].run()
+      if (this.events.length > 0) {
+        this.events[0].run()
+      }
     }
   }
 

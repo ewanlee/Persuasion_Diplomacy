@@ -264,16 +264,17 @@ function createHoldAnimation(unitMesh: THREE.Group): Tween {
   return growTween;
 }
 
-export function createAnimateUnitsEvent(phase: GamePhase): ScheduledEvent {
-  return new ScheduledEvent(`createAnimations-${phase.name}`, () => createAnimationsForNextPhase())
+export function createAnimateUnitsEvent(phase: GamePhase, phaseIdx: number): ScheduledEvent {
+  return new ScheduledEvent(`createAnimations-${phase.name}`, () => createAnimationsForNextPhase(phaseIdx))
 }
 
 /**
  * Creates animations for unit movements based on orders from the previous phase
  *
 **/
-export function createAnimationsForNextPhase() {
-  let previousPhase = gameState.gameData?.phases[gameState.phaseIndex == 0 ? 0 : gameState.phaseIndex - 1]
+export function createAnimationsForNextPhase(phaseIdx: number) {
+  if (phaseIdx === 0) { throw new Error("Cannot create animations for phase 0, must start on 1 or higher") }
+  let previousPhase = gameState.gameData?.phases[phaseIdx - 1]
   // const sequence = ["build", "disband", "hold", "move", "bounce", "retreat"]
   // Safety check - if no previous phase or no orders, return
   if (!previousPhase) {
@@ -305,7 +306,7 @@ export function createAnimationsForNextPhase() {
         order.type = "bounce"
       }
       // If the result is void, that means the move was not valid?
-      if (result === "void") continue;
+      if (result === "void" || result === "no convoy") continue;
       let unitIndex = -1
 
       unitIndex = getUnit(order, power);

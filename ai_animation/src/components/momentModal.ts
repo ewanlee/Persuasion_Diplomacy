@@ -5,6 +5,7 @@ import { PowerENUM } from '../types/map';
 import { Moment } from '../types/moments';
 import { MessageSchemaType } from '../types/gameState';
 import { ScheduledEvent } from '../events.ts'
+import { animateMessageWords, createChatBubble } from './chatBubble.ts';
 
 interface MomentDialogueOptions {
   moment: Moment;
@@ -33,14 +34,26 @@ export function showMomentModal(options: MomentDialogueOptions): void {
       `This indicates a data quality issue - moments should only be created when there are actual conversations to display.`
     );
   }
+  if (moment.powers_involved.length < 2) {
+    console.warn("Attempted to show moment with only one power involved")
+    onClose()
+  }
 
+  if (moment.raw_messages.length > config.convertsationModalMaxMessages) {
+    moment.raw_messages = moment.raw_messages.slice(moment.raw_messages.length - config.convertsationModalMaxMessages, moment.raw_messages.length)
+  }
   showConversationModalSequence(title, moment, onClose);
 }
 
 export function createMomentEvent(moment: Moment): ScheduledEvent {
   return new ScheduledEvent(
     `moment-${moment.phase}`,
-    () => showMomentModal({ moment }))
+    () => new Promise<void>((resolve) => {
+      showMomentModal({
+        moment,
+        onClose: () => resolve()
+      });
+    }))
 
 }
 
@@ -78,59 +91,56 @@ function showConversationModalSequence(
   dialogueOverlay.appendChild(dialogueContainer);
   document.body.appendChild(dialogueOverlay);
 
-  // Set up event listeners for close functionality
-  setupEventListeners(onClose);
-
   dialogueOverlay!.style.opacity = '1'
 
   // Schedule messages to be displayed sequentially through event queue
   console.log(`Starting two-power conversation with ${moment.raw_messages.length} messages`);
-  scheduleMessageSequence(conversationArea, moment.raw_messages, power1, power2, onClose);
+  scheduleMessageSequence(conversationArea, moment.raw_messages, power1, power2).then(() => {
+    closeMomentModal();
+    onClose();
+  });
 }
 
 /**
- * Schedules all messages to be displayed sequentially through the event queue
+ * Schedules all messages to be displayed sequentially using promises
  */
-function scheduleMessageSequence(
+async function scheduleMessageSequence(
   container: HTMLElement,
   messages: MessageSchemaType[],
   power1: string,
   power2: string,
   callbackOnClose?: () => void
-): void {
-  let messageIndex = 0;
+): Promise<void> {
+  // Chain message animations using promises to ensure sequential display
+  for (let i = 0; i < messages.length; i++) {
+    const messageObj = messages[i];
 
-  // Function to show the next message
-  const showNext = () => {
-    // All messages have been displayed
-    if (messageIndex >= messages.length) {
-      console.log(`All ${messages.length} conversation messages displayed, scheduling close in ${config.conversationFinalDelay}ms`);
-      // Schedule conversation close after all messages are shown
-      gameState.eventQueue.scheduleDelay(config.conversationFinalDelay, () => {
-        console.log('Closing two-power conversation and calling onClose callback');
-        closeMomentModal();
-        if (callbackOnClose) callbackOnClose();
-      }, `close-conversation-after-messages-${Date.now()}`);
-      return;
+    // Create the message element
+    const messageElement = createMessageElement(messageObj, power1, power2);
+    container.appendChild(messageElement);
+
+    // Animate message appearance
+    messageElement.style.opacity = '0';
+    messageElement.style.transform = 'translateY(20px)';
+    messageElement.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+    messageElement.style.opacity = '1';
+    messageElement.style.transform = 'translateY(0)';
+
+    // Scroll to bottom
+    container.scrollTop = container.scrollHeight;
+
+    // Wait for word-by-word animation to complete
+    const messageBubble = messageElement.querySelector('.message-bubble') as HTMLElement;
+    if (messageBubble) {
+      await new Promise<void>((resolve) => {
+        animateMessageWords(messageObj.message, messageBubble, container, resolve);
+      });
     }
+  }
 
-    // Get the next message
-    const message = messages[messageIndex];
-
-    // Function to call after message animation completes
-    const onMessageComplete = () => {
-      messageIndex++;
-      console.log(`Conversation message ${messageIndex} of ${messages.length} completed`);
-      // Schedule next message with proper delay
-      gameState.eventQueue.scheduleDelay(config.messageBetweenDelay, showNext, `show-next-conversation-message-${messageIndex}-${Date.now()}`);
-    };
-
-    // Display the message with word-by-word animation
-    displaySingleMessage(container, message, power1, power2, onMessageComplete);
-  };
-
-  // Start the message sequence with initial delay
-  gameState.eventQueue.scheduleDelay(config.conversationModalDelay, showNext, `start-conversation-sequence-${Date.now()}`);
+  if (callbackOnClose) {
+    callbackOnClose();
+  }
 }
 
 /**
@@ -210,7 +220,8 @@ function createDialogueOverlay(): HTMLElement {
     `;
 
   // Trigger fade in
-  gameState.eventQueue.scheduleDelay(10, () => overlay.style.opacity = '1', `fade-in-overlay-${Date.now()}`);
+  // Trigger fade in with a small timeout
+  setTimeout(() => overlay.style.opacity = '1', 10);
 
   return overlay;
 }
@@ -551,55 +562,3 @@ function createMessageElement(message: MessageSchemaType, power1: string, power2
   return messageDiv;
 }
 
-/**
- * Animates message text one word at a time (adapted from chatWindows.ts)
- */
-function animateMessageWords(
-  message: string,
-  contentElement: HTMLElement,
-  container: HTMLElement,
-  onComplete: (() => void) | null
-): void {
-  const words = message.split(/\s+/);
-
-  // Clear any existing content
-  contentElement.textContent = '';
-  let wordIndex = 0;
-
-  // Function to add the next word
-  const addNextWord = () => {
-    if (wordIndex >= words.length) {
-      // All words added - message is complete
-      console.log(`Finished animating conversation message with ${words.length} words`);
-
-      // Add a slight delay after the last word for readability
-      gameState.eventQueue.scheduleDelay(config.messageCompletionDelay, () => {
-        if (onComplete) {
-          onComplete(); // Call the completion callback
-        }
-      }, `conversation-message-complete-${Date.now()}`);
-
-      return;
-    }
-
-    // Add space if not the first word
-    if (wordIndex > 0) {
-      contentElement.textContent += ' ';
-    }
-
-    // Add the next word
-    contentElement.textContent += words[wordIndex];
-    wordIndex++;
-
-    // Calculate delay based on word length and playback speed
-    const wordLength = words[wordIndex - 1].length;
-    const delay = Math.max(config.messageWordDelay, Math.min(200, config.messageWordDelay * (wordLength / 4)));
-    gameState.eventQueue.scheduleDelay(delay, addNextWord, `add-conversation-word-${wordIndex}-${Date.now()}`);
-
-    // Scroll to ensure newest content is visible
-    container.scrollTop = container.scrollHeight;
-  };
-
-  // Start animation
-  addNextWord();
-}
