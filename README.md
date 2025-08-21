@@ -1,6 +1,4 @@
-# AI Diplomacy: LLM-Powered Strategic Gameplay
-
-Created by Alex Duffy @Alx-Ai & Tyler Marques @Tylermarques
+# Persuasion Diplomacy: LLM-Powered Strategic Communication
 
 ## Overview
 
@@ -51,114 +49,7 @@ Each power is represented by a `DiplomacyAgent` with:
 
 The following diagram illustrates the complete information flow and decision-making process for each AI agent:
 
-```mermaid
-graph TB
-    %% Game State Sources
-    subgraph "Game State Information"
-        GS[Game State<br/>- Unit Positions<br/>- Supply Centers<br/>- Power Status]
-        GH[Game History<br/>- Past Orders<br/>- Past Messages<br/>- Phase Results]
-        PS[Phase Summary<br/>- Successful Moves<br/>- Failed Moves<br/>- Board Changes]
-    end
-    
-    %% Agent Internal State
-    subgraph "Agent State (DiplomacyAgent)"
-        GOALS[Dynamic Goals<br/>- Expansion targets<br/>- Alliance priorities<br/>- Defense needs]
-        REL[Relationships<br/>Enemy ↔ Ally Scale]
-        
-        subgraph "Memory System"
-            DIARY[Private Diary<br/>Phase-prefixed entries]
-            
-            ND[Negotiation Diary<br/>- Message analysis<br/>- Trust assessment<br/>- Relationship changes]
-            OD[Order Diary<br/>- Strategic reasoning<br/>- Risk/reward analysis]
-            PRD[Phase Result Diary<br/>- Outcome analysis<br/>- Betrayal detection<br/>- Success evaluation]
-            
-            CONS[Diary Consolidation<br/>Yearly summaries<br/>via Gemini Flash]
-        end
-        
-        JOURNAL[Private Journal<br/>Debug logs only]
-    end
-    
-    %% Context Building
-    subgraph "Context Construction"
-        POC[Possible Order Context<br/>- BFS pathfinding<br/>- Nearest enemies<br/>- Uncontrolled SCs<br/>- Adjacent territories]
-        
-        BCP[build_context_prompt<br/>Assembles all info]
-        
-        RECENT[Recent Context<br/>- Last 40 diary entries<br/>- Current relationships<br/>- Active goals]
-    end
-    
-    %% LLM Interactions
-    subgraph "LLM Decision Points"
-        INIT_LLM[Initialization<br/>Set initial goals<br/>& relationships]
-        
-        NEG_LLM[Negotiation<br/>Generate messages<br/>Update relationships]
-        
-        PLAN_LLM[Planning<br/>Strategic directives]
-        
-        ORD_LLM[Order Generation<br/>Choose moves]
-        
-        STATE_LLM[State Update<br/>Revise goals<br/>& relationships]
-    end
-    
-    %% Prompt Templates
-    subgraph "Prompt Templates"
-        PROMPTS[Power-specific prompts<br/>+ Instruction templates<br/>+ Context templates]
-    end
-    
-    %% Information Flow
-    GS --> BCP
-    GH --> BCP
-    PS --> STATE_LLM
-    
-    GOALS --> BCP
-    REL --> BCP
-    DIARY --> RECENT
-    RECENT --> BCP
-    
-    POC --> BCP
-    BCP --> NEG_LLM
-    BCP --> ORD_LLM
-    BCP --> PLAN_LLM
-    
-    PROMPTS --> INIT_LLM
-    PROMPTS --> NEG_LLM
-    PROMPTS --> PLAN_LLM
-    PROMPTS --> ORD_LLM
-    PROMPTS --> STATE_LLM
-    
-    %% Diary Updates
-    NEG_LLM --> ND
-    ORD_LLM --> OD
-    PS --> PRD
-    
-    ND --> DIARY
-    OD --> DIARY
-    PRD --> DIARY
-    
-    %% State Updates
-    INIT_LLM --> GOALS
-    INIT_LLM --> REL
-    NEG_LLM --> REL
-    STATE_LLM --> GOALS
-    STATE_LLM --> REL
-    
-    %% Consolidation
-    DIARY -->|Every 2 years| CONS
-    CONS -->|Summarized| DIARY
-    
-    %% Styling
-    classDef gameState fill:#e74c3c,stroke:#333,stroke-width:2px,color:#fff
-    classDef agentState fill:#3498db,stroke:#333,stroke-width:2px,color:#fff
-    classDef context fill:#2ecc71,stroke:#333,stroke-width:2px,color:#fff
-    classDef llm fill:#f39c12,stroke:#333,stroke-width:2px,color:#fff
-    classDef memory fill:#9b59b6,stroke:#333,stroke-width:2px,color:#fff
-    
-    class GS,GH,PS gameState
-    class GOALS,REL,JOURNAL agentState
-    class POC,BCP,RECENT context
-    class INIT_LLM,NEG_LLM,PLAN_LLM,ORD_LLM,STATE_LLM llm
-    class DIARY,ND,OD,PRD,CONS memory
-```
+<img width="1313" height="1062" alt="diplomacy" src="https://github.com/user-attachments/assets/dfd561fb-43e5-4305-ac2a-ecaf4fc47565" />
 
 ### Key Components Explained
 
@@ -180,7 +71,7 @@ graph TB
 
 4. **LLM Decision Points**
    - **Initialization**: Sets starting personality and objectives
-   - **Negotiations**: Generates contextual messages based on relationships
+   - **Persuasions**: Generates contextual messages based on relationships
    - **Planning**: Creates high-level strategic directives
    - **Orders**: Selects specific moves with full strategic context
    - **State Updates**: Adjusts goals and relationships based on outcomes
