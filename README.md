@@ -1,8 +1,8 @@
-# Persuasion Diplomacy: LLM-Powered Strategic Communication
+# Persuasive Diplomacy: LLM-Powered Strategic Communication
 
 ## Overview
 
-This repository extends the original [Diplomacy](https://github.com/diplomacy/diplomacy) project with sophisticated AI agents powered by Large Language Models (LLMs). Each power in the game is controlled by an autonomous agent that maintains state, forms relationships, conducts negotiations, and makes strategic decisions.
+This repository extends the original [Diplomacy](https://github.com/diplomacy/diplomacy) project with sophisticated AI agents powered by Large Language Models (LLMs). Each power in the game is controlled by an autonomous agent that maintains state, forms relationships, conducts persuasions, and makes strategic decisions.
 
 ## Key Features
 
